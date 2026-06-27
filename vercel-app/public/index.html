@@ -343,7 +343,7 @@ function actualizarHeader() {
   fallaActiva = datos.fallaActiva;
 
   if (fallaActiva && datos.ultimaFalla) {
-    statusEl.textContent = 'Sin luz';
+    statusEl.textContent = '🚨 No hay electricidad';
     statusEl.className   = 'header-status sin-luz';
     descEl.textContent   = 'Corte activo desde las ' + formatHora(datos.ultimaFalla.hora);
     contWrap.style.display = 'block';
@@ -355,7 +355,7 @@ function actualizarHeader() {
       intervaloContador = setInterval(actualizarContador, 1000);
     }
   } else {
-    statusEl.textContent = 'Hay luz';
+    statusEl.textContent = '💡 Hay Electricidad';
     statusEl.className   = 'header-status con-luz';
 
     const ultimo = datos.registros.find(r => r.tipo === 'FALLA_FIN');
@@ -543,7 +543,7 @@ function itemHistorial(r) {
   const esInicio = r.tipo === 'FALLA_INICIO';
   return `
     <div class="historial-item">
-      <div class="h-icon ${esInicio ? 'inicio' : 'fin'}">${esInicio ? '⚡' : '✅'}</div>
+      <div class="h-icon ${esInicio ? 'inicio' : 'fin'}">${esInicio ? '🔌' : '⚡'}</div>
       <div class="h-body">
         <div class="h-tipo" style="color:${esInicio ? 'var(--accent)' : 'var(--green)'}">
           ${esInicio ? 'Se fue la luz' : 'Volvió la luz'}
