@@ -1,0 +1,704 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>ADRA — Detector de Falla de Luz</title>
+
+<!-- PWA: esto es lo que permite "Instalar app" / "Agregar a inicio" -->
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#0f3460" id="metaThemeColor">
+
+<!-- Android / Chrome -->
+<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+<link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png">
+
+<!-- iOS / Safari (Apple no lee manifest.json, necesita sus propias etiquetas) -->
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="ADRA">
+
+<script>
+  // Se ejecuta ANTES de pintar la página, para que no haya un "parpadeo"
+  // del tema oscuro antes de cambiar al claro guardado previamente.
+  (function () {
+    try {
+      if (localStorage.getItem('adra-theme') === 'light') {
+        document.documentElement.classList.add('theme-light');
+      }
+    } catch (e) {}
+  })();
+</script>
+
+<style>
+  :root {
+    --bg:       #1a1a2e;
+    --card:     #16213e;
+    --card2:    #0f3460;
+    --header-1: #0f3460;
+    --header-2: #16213e;
+    --accent:   #e94560;
+    --green:    #4ecca3;
+    --yellow:   #f5a623;
+    --text:     #eaeaea;
+    --muted:    #8892a4;
+    --border:   rgba(255,255,255,0.06);
+    --radius:   16px;
+    --shadow:   0 4px 24px rgba(0,0,0,0.4);
+  }
+
+  :root.theme-light {
+    --bg:       #eef1f7;
+    --card:     #ffffff;
+    --card2:    #f3f6fc;
+    --header-1: #ffffff;
+    --header-2: #e7ecf7;
+    --accent:   #e0314f;
+    --green:    #1f9d73;
+    --yellow:   #b9740a;
+    --text:     #1a1a2e;
+    --muted:    #6b7280;
+    --border:   rgba(15,30,60,0.08);
+    --radius:   16px;
+    --shadow:   0 4px 24px rgba(15,30,60,0.10);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    padding: 0 0 80px;
+    transition: background 0.25s ease, color 0.25s ease;
+  }
+
+  .header {
+    background: linear-gradient(160deg, var(--header-1) 0%, var(--header-2) 100%);
+    padding: 48px 24px 32px;
+    text-align: center;
+    position: relative;
+    overflow: hidden;
+    transition: background 0.25s ease;
+  }
+  .header::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(ellipse at 50% 0%, rgba(233,69,96,0.15) 0%, transparent 70%);
+  }
+  .header-location { font-size: 13px; color: var(--muted); letter-spacing: 1px; text-transform: uppercase; margin-bottom: 8px; }
+  .header-status { font-size: 56px; font-weight: 300; letter-spacing: -2px; line-height: 1; margin-bottom: 8px; }
+  .header-status.sin-luz { color: var(--accent); }
+  .header-status.con-luz { color: var(--green); }
+  .header-desc { font-size: 18px; color: var(--muted); margin-bottom: 24px; }
+  .header-meta { display: flex; justify-content: center; gap: 32px; font-size: 13px; color: var(--muted); }
+  .header-meta span { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+  .header-meta strong { color: var(--text); font-size: 15px; }
+
+  .contador-wrap { text-align: center; padding: 16px 0 0; }
+  .contador { font-size: 48px; font-weight: 200; letter-spacing: 4px; color: var(--accent); font-variant-numeric: tabular-nums; }
+  .contador-label { font-size: 12px; color: var(--muted); margin-top: 4px; }
+
+  .notif-banner {
+    margin: 16px 16px 0;
+    background: rgba(245,166,35,0.12);
+    border: 1px solid rgba(245,166,35,0.3);
+    border-radius: 12px;
+    padding: 12px 16px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 14px;
+    color: var(--yellow);
+    cursor: pointer;
+  }
+  .notif-banner.hidden { display: none; }
+  .notif-icon { font-size: 20px; flex-shrink: 0; }
+
+  .grid { padding: 16px; display: grid; gap: 12px; grid-template-columns: 1fr 1fr; }
+  .card { background: var(--card); border-radius: var(--radius); padding: 20px; box-shadow: var(--shadow); transition: background 0.25s ease, box-shadow 0.25s ease; }
+  .card.full { grid-column: 1 / -1; }
+  .card-label { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin-bottom: 8px; }
+  .card-value { font-size: 28px; font-weight: 300; line-height: 1.1; }
+  .card-sub { font-size: 12px; color: var(--muted); margin-top: 4px; }
+
+  .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
+  .dot.green { background: var(--green); box-shadow: 0 0 8px var(--green); }
+  .dot.red   { background: var(--accent); box-shadow: 0 0 8px var(--accent); animation: pulse 1.5s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+
+  .pronostico-bar { margin-top: 12px; display: flex; gap: 4px; align-items: flex-end; height: 48px; }
+  .pbar { flex: 1; border-radius: 4px 4px 0 0; background: var(--border); transition: height 0.6s ease; position: relative; }
+  .pbar.active { background: rgba(233,69,96,0.6); }
+  .pbar-label { position: absolute; bottom: -18px; left: 50%; transform: translateX(-50%); font-size: 9px; color: var(--muted); white-space: nowrap; }
+  .pronostico-texto { margin-top: 28px; font-size: 13px; color: var(--muted); line-height: 1.5; }
+  .pronostico-confianza { margin-top: 8px; font-size: 12px; color: var(--yellow); }
+
+  .historial-list { margin-top: 8px; }
+  .historial-item { display: flex; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--border); }
+  .historial-item:last-child { border-bottom: none; }
+  .h-icon { width: 36px; height: 36px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 16px; flex-shrink: 0; }
+  .h-icon.inicio { background: rgba(233,69,96,0.15); }
+  .h-icon.fin    { background: rgba(78,204,163,0.15); }
+  .h-body { flex: 1; min-width: 0; }
+  .h-tipo { font-size: 13px; font-weight: 500; }
+  .h-hora { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .h-dur  { font-size: 13px; color: var(--muted); text-align: right; white-space: nowrap; }
+
+  .battery-wrap { display: flex; align-items: center; gap: 16px; margin-top: 8px; }
+  .battery-icon { width: 48px; height: 24px; border: 2px solid var(--muted); border-radius: 4px; position: relative; flex-shrink: 0; }
+  .battery-icon::after { content: ''; position: absolute; right: -6px; top: 50%; transform: translateY(-50%); width: 4px; height: 10px; background: var(--muted); border-radius: 0 2px 2px 0; }
+  .battery-fill { position: absolute; left: 2px; top: 2px; bottom: 2px; border-radius: 2px; transition: width 0.6s ease, background 0.6s ease; }
+  .battery-pct { font-size: 28px; font-weight: 300; }
+
+  .nav { position: fixed; bottom: 0; left: 0; right: 0; background: var(--card); border-top: 1px solid var(--border); display: flex; padding: 8px 0 16px; transition: background 0.25s ease; }
+  .nav-item { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 10px; color: var(--muted); cursor: pointer; padding: 6px 0; transition: color 0.2s; }
+  .nav-item.active { color: var(--green); }
+  .nav-item svg { width: 22px; height: 22px; stroke: currentColor; fill: none; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+
+  .loading { text-align: center; padding: 40px; color: var(--muted); font-size: 14px; }
+  .conn-badge { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); margin-top: 8px; }
+
+  /* SELECTOR DE TEMA */
+  .theme-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-top: 4px;
+  }
+  .theme-row-label { font-size: 14px; }
+  .theme-row-sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .theme-switch {
+    position: relative;
+    width: 52px;
+    height: 30px;
+    flex-shrink: 0;
+  }
+  .theme-switch input { opacity: 0; width: 0; height: 0; position: absolute; }
+  .theme-switch .slider {
+    position: absolute;
+    inset: 0;
+    background: var(--card2);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    cursor: pointer;
+    transition: background 0.2s ease;
+  }
+  .theme-switch .slider::before {
+    content: '🌙';
+    position: absolute;
+    left: 3px;
+    top: 3px;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: var(--bg);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    line-height: 1;
+    transition: transform 0.25s ease, background 0.2s ease;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.3);
+  }
+  .theme-switch input:checked + .slider { background: var(--accent); }
+  .theme-switch input:checked + .slider::before {
+    transform: translateX(22px);
+    content: '☀️';
+  }
+</style>
+</head>
+<body>
+
+<div class="notif-banner" id="notifBanner" onclick="solicitarNotificaciones()">
+  <span class="notif-icon">🔔</span>
+  <span>Activar notificaciones para recibir alertas de cortes</span>
+</div>
+
+<div class="header">
+  <div class="header-location" id="headerLocation">Cargando...</div>
+  <div class="header-status" id="headerStatus">--</div>
+  <div class="header-desc" id="headerDesc">Verificando estado...</div>
+  <div class="contador-wrap" id="contadorWrap" style="display:none">
+    <div class="contador" id="contador">00:00:00</div>
+    <div class="contador-label">tiempo sin electricidad</div>
+  </div>
+  <div class="header-meta">
+    <span><strong id="metaTotalFallas">--</strong>fallas totales</span>
+    <span><strong id="metaDurMax">--</strong>máx registrada</span>
+    <span><strong id="metaDurProm">--</strong>duración prom.</span>
+  </div>
+</div>
+
+<div class="grid" id="mainGrid">
+  <div class="loading" style="grid-column:1/-1">Cargando datos...</div>
+</div>
+
+<nav class="nav">
+  <div class="nav-item active" onclick="mostrarVista('inicio')">
+    <svg viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+    Inicio
+  </div>
+  <div class="nav-item" onclick="mostrarVista('historial')">
+    <svg viewBox="0 0 24 24"><path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+    Historial
+  </div>
+  <div class="nav-item" onclick="mostrarVista('estadisticas')">
+    <svg viewBox="0 0 24 24"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+    Estadísticas
+  </div>
+  <div class="nav-item" onclick="mostrarVista('ajustes')">
+    <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+    Ajustes
+  </div>
+</nav>
+
+<script>
+// ============================================================
+//  CONFIGURACIÓN — EDITAR ANTES DE DESPLEGAR
+// ============================================================
+const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwnTl1xXlXWC5sMDfNhOe3AniATnd-6Te0TfexZTkaO1pB88Gxl6QD2ZjHOfgobdriI/exec';
+const NOMBRE_DISPOSITIVO = 'ADRA';
+const CIUDAD = 'Venezuela';
+
+// Clave pública VAPID — DEBE ser exactamente la misma que configuraste
+// como variable de entorno VAPID_PUBLIC_KEY en Vercel.
+const VAPID_PUBLIC_KEY = 'BHLs0A9iejckHaNK3HCukLgQmI50pxJwNt7pA5R85YPg1lzo04r-fazCdrcHZlh-F9POAxfjirjRV625cdHNy90';
+
+// ============================================================
+//  ESTADO GLOBAL
+// ============================================================
+let datos = null;
+let resumen = null;
+let fallaActiva = false;
+let tiempoInicioFalla = null;
+let intervaloContador = null;
+let vistaActual = 'inicio';
+
+document.addEventListener('DOMContentLoaded', () => {
+  aplicarTema(obtenerTemaActual(), false);
+  document.getElementById('headerLocation').textContent = NOMBRE_DISPOSITIVO + ' · ' + CIUDAD;
+  verificarNotificaciones();
+  cargarDatos();
+  setInterval(cargarDatos, 60000); // refresca la UI cada 60s — el push real no depende de esto
+  registrarServiceWorker();
+});
+
+// ============================================================
+//  TEMA OSCURO / CLARO
+// ============================================================
+function obtenerTemaActual() {
+  try {
+    return localStorage.getItem('adra-theme') || 'dark';
+  } catch (e) {
+    return 'dark';
+  }
+}
+
+function aplicarTema(tema, guardar) {
+  const esClaro = tema === 'light';
+  document.documentElement.classList.toggle('theme-light', esClaro);
+
+  const meta = document.getElementById('metaThemeColor');
+  if (meta) meta.setAttribute('content', esClaro ? '#ffffff' : '#0f3460');
+
+  if (guardar) {
+    try { localStorage.setItem('adra-theme', tema); } catch (e) {}
+  }
+}
+
+function cambiarTema(checkbox) {
+  aplicarTema(checkbox.checked ? 'light' : 'dark', true);
+}
+
+// ============================================================
+//  CARGAR DATOS DESDE APPS SCRIPT (para pintar la UI)
+// ============================================================
+async function cargarDatos() {
+  try {
+    const [resDatos, resResumen] = await Promise.all([
+      fetch(SCRIPT_URL + '?accion=obtenerDatos'),
+      fetch(SCRIPT_URL + '?accion=obtenerResumen')
+    ]);
+
+    datos   = await resDatos.json();
+    resumen = await resResumen.json();
+
+    if (datos.status === 'OK') {
+      actualizarHeader();
+      renderizarVista();
+    }
+  } catch (e) {
+    console.error('Error cargando datos:', e);
+  }
+}
+
+function actualizarHeader() {
+  const statusEl = document.getElementById('headerStatus');
+  const descEl   = document.getElementById('headerDesc');
+  const contWrap = document.getElementById('contadorWrap');
+
+  fallaActiva = datos.fallaActiva;
+
+  if (fallaActiva && datos.ultimaFalla) {
+    statusEl.textContent = 'Sin luz';
+    statusEl.className   = 'header-status sin-luz';
+    descEl.textContent   = 'Corte activo desde las ' + formatHora(datos.ultimaFalla.hora);
+    contWrap.style.display = 'block';
+
+    if (!tiempoInicioFalla) {
+      tiempoInicioFalla = new Date(datos.ultimaFalla.hora.replace(' ', 'T'));
+    }
+    if (!intervaloContador) {
+      intervaloContador = setInterval(actualizarContador, 1000);
+    }
+  } else {
+    statusEl.textContent = 'Hay luz';
+    statusEl.className   = 'header-status con-luz';
+
+    const ultimo = datos.registros.find(r => r.tipo === 'FALLA_FIN');
+    descEl.textContent = ultimo
+      ? 'Última falla: ' + formatHora(ultimo.hora) + ' · ' + ultimo.durHMS
+      : 'Sin fallas registradas';
+
+    contWrap.style.display = 'none';
+    tiempoInicioFalla = null;
+    if (intervaloContador) { clearInterval(intervaloContador); intervaloContador = null; }
+  }
+
+  if (resumen && resumen.resumen) {
+    const r = resumen.resumen;
+    document.getElementById('metaTotalFallas').textContent = r.totalFallas || '0';
+    document.getElementById('metaDurMax').textContent      = r.duracionMaxima || '--';
+    document.getElementById('metaDurProm').textContent     = r.duracionPromedio || '--';
+  }
+}
+
+function actualizarContador() {
+  if (!tiempoInicioFalla) return;
+  const diff = Math.floor((Date.now() - tiempoInicioFalla.getTime()) / 1000);
+  const h = Math.floor(diff / 3600);
+  const m = Math.floor((diff % 3600) / 60);
+  const s = diff % 60;
+  document.getElementById('contador').textContent =
+    String(h).padStart(2,'0') + ':' + String(m).padStart(2,'0') + ':' + String(s).padStart(2,'0');
+}
+
+// ============================================================
+//  RENDERIZADO DE VISTAS (igual que antes)
+// ============================================================
+function renderizarVista() {
+  if (vistaActual === 'inicio')            renderInicio();
+  else if (vistaActual === 'historial')    renderHistorial();
+  else if (vistaActual === 'estadisticas') renderEstadisticas();
+  else if (vistaActual === 'ajustes')      renderAjustes();
+}
+
+function renderInicio() {
+  const grid = document.getElementById('mainGrid');
+  const bat  = calcularBateria();
+  const r    = resumen && resumen.resumen ? resumen.resumen : {};
+  const pro  = r.pronostico || {};
+
+  grid.innerHTML = `
+    <div class="card">
+      <div class="card-label">Batería del dispositivo</div>
+      <div class="battery-wrap">
+        <div class="battery-icon">
+          <div class="battery-fill" id="batFill" style="width:${bat.pct}%;background:${bat.color}"></div>
+        </div>
+        <div class="battery-pct">${bat.pct}%</div>
+      </div>
+      <div class="card-sub">${bat.texto}</div>
+    </div>
+
+    <div class="card">
+      <div class="card-label">Conectividad</div>
+      <div class="card-value" style="font-size:20px">
+        <span class="dot ${fallaActiva ? 'red' : 'green'}"></span>
+        ${fallaActiva ? 'Sin internet' : 'En línea'}
+      </div>
+      <div class="card-sub conn-badge">
+        Actualizado hace <span id="tiempoActualizacion">0</span>s
+      </div>
+    </div>
+
+    <div class="card full">
+      <div class="card-label">Últimos eventos</div>
+      <div class="historial-list">
+        ${(datos.registros || []).slice(0,5).map(r => itemHistorial(r)).join('')}
+      </div>
+    </div>
+
+    <div class="card full">
+      <div class="card-label">Pronóstico</div>
+      ${renderPronostico(r)}
+    </div>
+  `;
+
+  iniciarContadorActualizacion();
+}
+
+function renderHistorial() {
+  const grid = document.getElementById('mainGrid');
+  const lista = (datos.registros || []).map(r => itemHistorial(r)).join('');
+  grid.innerHTML = `
+    <div class="card full">
+      <div class="card-label">${datos.total || 0} eventos registrados</div>
+      <div class="historial-list">${lista || '<div style="color:var(--muted);padding:16px 0">Sin registros aún</div>'}</div>
+    </div>
+  `;
+}
+
+function renderEstadisticas() {
+  const grid = document.getElementById('mainGrid');
+  const r    = resumen && resumen.resumen ? resumen.resumen : {};
+  const cf   = r.conteoFranjas || {};
+  const maxC = Math.max(cf['Madrugada']||0, cf['Mañana']||0, cf['Tarde']||0, cf['Noche']||0) || 1;
+
+  grid.innerHTML = `
+    <div class="card full">
+      <div class="card-label">Distribución por franja horaria</div>
+      <div class="pronostico-bar">
+        ${['Madrugada','Mañana','Tarde','Noche'].map(f => {
+          const v = cf[f] || 0;
+          const h = Math.max(8, Math.round((v/maxC)*48));
+          const active = f === r.franjaMaxima ? 'active' : '';
+          return `<div class="pbar ${active}" style="height:${h}px"><span class="pbar-label">${f.substring(0,3)}</span></div>`;
+        }).join('')}
+      </div>
+      <div style="margin-top:32px;display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div><div class="card-label">Total fallas</div><div class="card-value">${r.totalFallas||0}</div></div>
+        <div><div class="card-label">Dur. promedio</div><div class="card-value" style="font-size:18px">${r.duracionPromedio||'--'}</div></div>
+        <div><div class="card-label">Dur. máxima</div><div class="card-value" style="font-size:18px">${r.duracionMaxima||'--'}</div></div>
+        <div><div class="card-label">Tiempo total sin luz</div><div class="card-value" style="font-size:18px">${r.tiempoTotalSinLuz||'--'}</div></div>
+      </div>
+    </div>
+    <div class="card full">
+      <div class="card-label">Franja más afectada</div>
+      <div class="card-value" style="font-size:22px;color:var(--accent)">${r.franjaMaxima||'Sin datos'}</div>
+      <div class="card-sub">La luz falla más en este horario según el historial</div>
+    </div>
+  `;
+}
+
+function renderAjustes() {
+  const grid = document.getElementById('mainGrid');
+  const esClaro = document.documentElement.classList.contains('theme-light');
+  grid.innerHTML = `
+    <div class="card full">
+      <div class="card-label">Apariencia</div>
+      <div class="theme-row" style="margin-top:12px">
+        <div>
+          <div class="theme-row-label">Modo claro</div>
+          <div class="theme-row-sub">Cambia los colores de toda la app</div>
+        </div>
+        <label class="theme-switch">
+          <input type="checkbox" id="themeCheckbox" ${esClaro ? 'checked' : ''} onchange="cambiarTema(this)">
+          <span class="slider"></span>
+        </label>
+      </div>
+    </div>
+    <div class="card full">
+      <div class="card-label">Notificaciones push</div>
+      <div style="margin-top:12px;display:flex;flex-direction:column;gap:12px">
+        <button onclick="solicitarNotificaciones()" style="background:var(--green);color:#000;border:none;border-radius:10px;padding:12px 20px;font-size:14px;font-weight:600;cursor:pointer">
+          Activar notificaciones
+        </button>
+        <button onclick="probarNotificacion()" style="background:var(--card2);color:var(--text);border:none;border-radius:10px;padding:12px 20px;font-size:14px;cursor:pointer">
+          Enviar notificación de prueba
+        </button>
+      </div>
+      <div class="card-sub" style="margin-top:12px" id="notifEstado">--</div>
+    </div>
+    <div class="card full">
+      <div class="card-label">Configurar WiFi del dispositivo</div>
+      <div class="card-sub" style="margin-top:8px;line-height:1.6">
+        Para conectar el dispositivo a una nueva red WiFi, conecta tu celular a la red <strong style="color:var(--green)">DFL-Config</strong> y sigue las instrucciones.<br><br>
+        Esta función estará disponible en la próxima versión del firmware.
+      </div>
+    </div>
+    <div class="card full">
+      <div class="card-label">Sobre el dispositivo</div>
+      <div style="margin-top:8px;font-size:13px;color:var(--muted);line-height:1.8">
+        <div>Firmware: v5.1</div>
+        <div>Microcontrolador: ESP32-C3 Super Mini</div>
+        <div>Sensor: ZMPT101B</div>
+        <div>Proyecto: UNEFA · Ing. de Sistemas</div>
+        <div>Autores: Jesús Rivas & Sofía Karabin</div>
+      </div>
+    </div>
+  `;
+
+  const perm = Notification.permission;
+  document.getElementById('notifEstado').textContent =
+    perm === 'granted' ? '✅ Notificaciones activas' :
+    perm === 'denied'  ? '❌ Notificaciones bloqueadas en el navegador' :
+                         '⚠️ Notificaciones no activadas';
+}
+
+function itemHistorial(r) {
+  const esInicio = r.tipo === 'FALLA_INICIO';
+  return `
+    <div class="historial-item">
+      <div class="h-icon ${esInicio ? 'inicio' : 'fin'}">${esInicio ? '⚡' : '✅'}</div>
+      <div class="h-body">
+        <div class="h-tipo" style="color:${esInicio ? 'var(--accent)' : 'var(--green)'}">
+          ${esInicio ? 'Se fue la luz' : 'Volvió la luz'}
+        </div>
+        <div class="h-hora">${formatHora(r.hora)}</div>
+      </div>
+      <div class="h-dur">${r.durHMS !== '-' && r.durHMS ? r.durHMS : ''}</div>
+    </div>
+  `;
+}
+
+function renderPronostico(r) {
+  const pro  = r.pronostico || {};
+  const cf   = r.conteoFranjas || {};
+  const maxC = Math.max(cf['Madrugada']||0, cf['Mañana']||0, cf['Tarde']||0, cf['Noche']||0) || 1;
+  return `
+    <div class="pronostico-bar">
+      ${['Madrugada','Mañana','Tarde','Noche'].map(f => {
+        const v = cf[f] || 0;
+        const h = Math.max(8, Math.round((v/maxC)*48));
+        const active = f === r.franjaMaxima ? 'active' : '';
+        return `<div class="pbar ${active}" style="height:${h}px"><span class="pbar-label">${f.substring(0,3)}</span></div>`;
+      }).join('')}
+    </div>
+    <div class="pronostico-texto">${pro.texto || 'Acumulando datos para generar pronóstico...'}</div>
+    ${pro.confianza ? `<div class="pronostico-confianza">Confianza: ${pro.confianza}% basada en historial</div>` : ''}
+  `;
+}
+
+function calcularBateria() {
+  const pct   = 75; // placeholder hasta que el Arduino reporte voltaje real
+  const color = pct > 50 ? 'var(--green)' : pct > 20 ? 'var(--yellow)' : 'var(--accent)';
+  const texto = pct > 50 ? 'Batería en buen estado' : pct > 20 ? 'Batería baja' : 'Batería crítica';
+  return { pct, color, texto };
+}
+
+function formatHora(h) {
+  if (!h) return '--';
+  const s = h.toString();
+  return s.length >= 16 ? s.substring(8, 16) : s;
+}
+
+function mostrarVista(vista) {
+  vistaActual = vista;
+  document.querySelectorAll('.nav-item').forEach((el, i) => {
+    el.classList.toggle('active', ['inicio','historial','estadisticas','ajustes'][i] === vista);
+  });
+  if (datos) renderizarVista();
+  else document.getElementById('mainGrid').innerHTML = '<div class="loading" style="grid-column:1/-1">Cargando...</div>';
+}
+
+let tsActualizacion = Date.now();
+function iniciarContadorActualizacion() {
+  tsActualizacion = Date.now();
+  setInterval(() => {
+    const el = document.getElementById('tiempoActualizacion');
+    if (el) el.textContent = Math.floor((Date.now() - tsActualizacion) / 1000);
+  }, 1000);
+}
+
+// ============================================================
+//  PUSH NOTIFICATIONS — REGISTRO REAL CON VAPID
+//  Esto es lo que reemplaza al enfoque anterior (Notification API
+//  en foreground). Con esto, el navegador queda suscrito a un push
+//  real: el SO entrega la notificación aunque el navegador esté
+//  cerrado y el celular bloqueado.
+// ============================================================
+async function registrarServiceWorker() {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
+  try {
+    const reg = await navigator.serviceWorker.register('/sw.js');
+    // si ya hay permiso concedido de una sesión anterior, re-suscribimos
+    if (Notification.permission === 'granted') {
+      await suscribirPush(reg);
+    }
+  } catch (e) {
+    console.log('SW no registrado:', e);
+  }
+}
+
+function urlBase64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - base64String.length % 4) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+  for (let i = 0; i < rawData.length; i++) outputArray[i] = rawData.charCodeAt(i);
+  return outputArray;
+}
+
+async function suscribirPush(registrationParam) {
+  const reg = registrationParam || await navigator.serviceWorker.ready;
+
+  let sub = await reg.pushManager.getSubscription();
+  if (!sub) {
+    sub = await reg.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
+    });
+  }
+
+  // Guardamos la suscripción del lado del servidor (vía Apps Script)
+  await fetch('/api/subscribe', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(sub)
+  });
+
+  return sub;
+}
+
+function verificarNotificaciones() {
+  const banner = document.getElementById('notifBanner');
+  if (!('Notification' in window) || Notification.permission === 'granted') {
+    banner.classList.add('hidden');
+  }
+}
+
+async function solicitarNotificaciones() {
+  if (!('Notification' in window)) {
+    alert('Tu navegador no soporta notificaciones push.');
+    return;
+  }
+
+  const perm = await Notification.requestPermission();
+
+  if (perm === 'granted') {
+    try {
+      await suscribirPush();
+      document.getElementById('notifBanner').classList.add('hidden');
+      if (vistaActual === 'ajustes') renderAjustes();
+    } catch (e) {
+      console.error('Error al suscribirse al push:', e);
+      alert('No se pudo activar el push. Revisa la consola para más detalles.');
+    }
+  }
+}
+
+// Prueba local: muestra una notificación usando el SW activo,
+// sin pasar por el servidor — solo confirma que el permiso funciona.
+async function probarNotificacion() {
+  if (Notification.permission !== 'granted') {
+    alert('Primero activa las notificaciones.');
+    return;
+  }
+  const reg = await navigator.serviceWorker.getRegistration();
+  if (reg) {
+    reg.showNotification('⚡ Prueba ADRA', {
+      body: 'Las notificaciones están funcionando correctamente',
+      icon: '/icon-192.png',
+      vibrate: [200, 100, 200]
+    });
+  } else {
+    new Notification('⚡ Prueba DFL', { body: 'Las notificaciones están funcionando correctamente' });
+  }
+}
+</script>
+</body>
+</html>
