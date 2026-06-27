@@ -14,7 +14,7 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('push', (event) => {
-  let datos = { titulo: 'DFL — Alerta', cuerpo: 'Hay una actualización', tipo: 'info' };
+  let datos = { titulo: 'ADRA — Alerta', cuerpo: 'Hay una actualización', tipo: 'info' };
 
   try {
     if (event.data) datos = event.data.json();
@@ -24,9 +24,9 @@ self.addEventListener('push', (event) => {
 
   const opciones = {
     body: datos.cuerpo,
-    icon: '/icon.png',
+    icon: '/icon-192.png',
     badge: '/badge.png',
-    tag: datos.tipo || 'dfl',
+    tag: datos.tipo || 'adra',
     renotify: true,
     vibrate: [200, 100, 200],
     data: { url: '/' }

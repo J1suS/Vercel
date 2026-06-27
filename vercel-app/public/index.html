@@ -2,8 +2,23 @@
 <html lang="es">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>DFL — Detector de Falla de Luz</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>ADRA — Detector de Falla de Luz</title>
+
+<!-- PWA: esto es lo que permite "Instalar app" / "Agregar a inicio" -->
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#0f3460">
+
+<!-- Android / Chrome -->
+<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+<link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png">
+
+<!-- iOS / Safari (Apple no lee manifest.json, necesita sus propias etiquetas) -->
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="ADRA">
+
 <style>
   :root {
     --bg:       #1a1a2e;
@@ -162,13 +177,13 @@
 // ============================================================
 //  CONFIGURACIÓN — EDITAR ANTES DE DESPLEGAR
 // ============================================================
-const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwnTl1xXlXWC5sMDfNhOe3AniATnd-6Te0TfexZTkaO1pB88Gxl6QD2ZjHOfgobdriI/exec';
-const NOMBRE_DISPOSITIVO = 'Detector DFL';
+const SCRIPT_URL = 'TU_URL_DE_APPS_SCRIPT_AQUI';
+const NOMBRE_DISPOSITIVO = 'ADRA';
 const CIUDAD = 'Venezuela';
 
 // Clave pública VAPID — DEBE ser exactamente la misma que configuraste
 // como variable de entorno VAPID_PUBLIC_KEY en Vercel.
-const VAPID_PUBLIC_KEY = 'BHLs0A9iejckHaNK3HCukLgQmI50pxJwNt7pA5R85YPg1lzo04r-fazCdrcHZlh-F9POAxfjirjRV625cdHNy90';
+const VAPID_PUBLIC_KEY = 'TU_VAPID_PUBLIC_KEY_AQUI';
 
 // ============================================================
 //  ESTADO GLOBAL
@@ -551,9 +566,9 @@ async function probarNotificacion() {
   }
   const reg = await navigator.serviceWorker.getRegistration();
   if (reg) {
-    reg.showNotification('⚡ Prueba DFL', {
+    reg.showNotification('⚡ Prueba ADRA', {
       body: 'Las notificaciones están funcionando correctamente',
-      icon: '/icon.png',
+      icon: '/icon-192.png',
       vibrate: [200, 100, 200]
     });
   } else {
