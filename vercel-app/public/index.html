@@ -161,6 +161,31 @@
   .loading { text-align: center; padding: 40px; color: var(--muted); font-size: 14px; }
   .conn-badge { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); margin-top: 8px; }
 
+  /* Animación: nueva fila se desliza desde arriba */
+  @keyframes slideDown {
+    from { opacity: 0; transform: translateY(-18px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .historial-item.nuevo {
+    animation: slideDown 0.35s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  /* Animación: el texto grande del header cambia suavemente */
+  @keyframes fadeSwap {
+    0%   { opacity: 1; transform: scale(1); }
+    40%  { opacity: 0; transform: scale(0.92); }
+    60%  { opacity: 0; transform: scale(1.04); }
+    100% { opacity: 1; transform: scale(1); }
+  }
+  .header-status.animando {
+    animation: fadeSwap 0.5s ease both;
+  }
+
+  @keyframes slideUp {
+    from { transform: translateY(100%); }
+    to   { transform: translateY(0); }
+  }
+
   /* SELECTOR DE TEMA */
   .theme-row {
     display: flex;
@@ -272,6 +297,10 @@ const VAPID_PUBLIC_KEY = 'BHLs0A9iejckHaNK3HCukLgQmI50pxJwNt7pA5R85YPg1lzo04r-fa
 // ============================================================
 let datos = null;
 let resumen = null;
+let registrosTodos = [];   // acumula todos los eventos cargados (para "cargar más")
+let paginaActual  = 1;     // página actual en el historial
+let hayMasRegistros = false;
+let cargandoMas   = false;
 let fallaActiva = false;
 let tiempoInicioFalla = null;
 let intervaloContador = null;
@@ -314,12 +343,13 @@ function cambiarTema(checkbox) {
 }
 
 // ============================================================
-//  CARGAR DATOS DESDE APPS SCRIPT (para pintar la UI)
+//  CARGAR DATOS DESDE APPS SCRIPT
 // ============================================================
 async function cargarDatos() {
   try {
+    paginaActual = 1;
     const [resDatos, resResumen] = await Promise.all([
-      fetch(SCRIPT_URL + '?accion=obtenerDatos'),
+      fetch(SCRIPT_URL + '?accion=obtenerDatos&pagina=1&porPagina=50'),
       fetch(SCRIPT_URL + '?accion=obtenerResumen')
     ]);
 
@@ -327,12 +357,36 @@ async function cargarDatos() {
     resumen = await resResumen.json();
 
     if (datos.status === 'OK') {
+      registrosTodos  = datos.registros || [];
+      hayMasRegistros = datos.hayMas || false;
       actualizarHeader();
       renderizarVista();
     }
   } catch (e) {
     console.error('Error cargando datos:', e);
   }
+}
+
+async function cargarMas() {
+  if (cargandoMas || !hayMasRegistros) return;
+  cargandoMas = true;
+
+  const btnMas = document.getElementById('btnCargarMas');
+  if (btnMas) btnMas.textContent = 'Cargando...';
+
+  try {
+    paginaActual++;
+    const res  = await fetch(SCRIPT_URL + '?accion=obtenerDatos&pagina=' + paginaActual + '&porPagina=50');
+    const json = await res.json();
+    if (json.status === 'OK') {
+      registrosTodos  = registrosTodos.concat(json.registros || []);
+      hayMasRegistros = json.hayMas || false;
+      renderHistorial(); // solo re-renderiza el historial, no toda la app
+    }
+  } catch (e) {
+    console.error('Error cargando más:', e);
+  }
+  cargandoMas = false;
 }
 
 function actualizarHeader() {
@@ -343,7 +397,7 @@ function actualizarHeader() {
   fallaActiva = datos.fallaActiva;
 
   if (fallaActiva && datos.ultimaFalla) {
-    statusEl.textContent = '🚨 No hay electricidad';
+    statusEl.textContent = 'Sin luz';
     statusEl.className   = 'header-status sin-luz';
     descEl.textContent   = 'Corte activo desde las ' + formatHora(datos.ultimaFalla.hora);
     contWrap.style.display = 'block';
@@ -355,7 +409,7 @@ function actualizarHeader() {
       intervaloContador = setInterval(actualizarContador, 1000);
     }
   } else {
-    statusEl.textContent = '💡 Hay Electricidad';
+    statusEl.textContent = 'Hay luz';
     statusEl.className   = 'header-status con-luz';
 
     const ultimo = datos.registros.find(r => r.tipo === 'FALLA_FIN');
@@ -428,7 +482,7 @@ function renderInicio() {
     <div class="card full">
       <div class="card-label">Últimos eventos</div>
       <div class="historial-list">
-        ${(datos.registros || []).slice(0,5).map(r => itemHistorial(r)).join('')}
+      ${registrosTodos.slice(0,5).map(r => itemHistorial(r)).join('')}
       </div>
     </div>
 
@@ -442,12 +496,25 @@ function renderInicio() {
 }
 
 function renderHistorial() {
-  const grid = document.getElementById('mainGrid');
-  const lista = (datos.registros || []).map(r => itemHistorial(r)).join('');
+  const grid  = document.getElementById('mainGrid');
+  const lista = registrosTodos.map(r => itemHistorial(r)).join('');
+  const total = datos ? (datos.total || 0) : 0;
+
   grid.innerHTML = `
     <div class="card full">
-      <div class="card-label">${datos.total || 0} eventos registrados</div>
-      <div class="historial-list">${lista || '<div style="color:var(--muted);padding:16px 0">Sin registros aún</div>'}</div>
+      <div class="card-label">${total} eventos registrados · mostrando ${registrosTodos.length}</div>
+      <div class="historial-list">
+        ${lista || '<div style="color:var(--muted);padding:16px 0">Sin registros aún</div>'}
+      </div>
+      ${hayMasRegistros ? `
+        <button id="btnCargarMas" onclick="cargarMas()" style="
+          width:100%;margin-top:16px;padding:12px;
+          background:var(--card2);color:var(--text);
+          border:none;border-radius:12px;font-size:14px;cursor:pointer;
+        ">Cargar más eventos</button>
+      ` : `
+        ${registrosTodos.length > 0 ? '<div style="text-align:center;padding:16px 0;font-size:12px;color:var(--muted)">— Todos los registros cargados —</div>' : ''}
+      `}
     </div>
   `;
 }
@@ -540,19 +607,101 @@ function renderAjustes() {
 }
 
 function itemHistorial(r) {
-  const esInicio = r.tipo === 'FALLA_INICIO';
+  const esInicio  = r.tipo === 'FALLA_INICIO';
+  const fecha     = formatFechaCorta(r.hora);
+  const horaStr   = formatHoraCorta(r.hora);
+  const duracion  = (r.durHMS && r.durHMS !== '-' && r.durHMS !== '0h 0m 0s') ? r.durHMS : '';
+
   return `
-    <div class="historial-item">
-      <div class="h-icon ${esInicio ? 'inicio' : 'fin'}">${esInicio ? '🔌' : '⚡'}</div>
+    <div class="historial-item" onclick="abrirDetalle(${r.n})">
+      <div class="h-icon ${esInicio ? 'inicio' : 'fin'}">${esInicio ? '⚡' : '✅'}</div>
       <div class="h-body">
         <div class="h-tipo" style="color:${esInicio ? 'var(--accent)' : 'var(--green)'}">
           ${esInicio ? 'Se fue la luz' : 'Volvió la luz'}
         </div>
-        <div class="h-hora">${formatHora(r.hora)}</div>
+        <div class="h-hora">${fecha} · ${horaStr}</div>
       </div>
-      <div class="h-dur">${r.durHMS !== '-' && r.durHMS ? r.durHMS : ''}</div>
+      <div class="h-dur">${duracion}</div>
     </div>
   `;
+}
+
+// ============================================================
+//  PANEL DE DETALLE (bottom sheet al tocar una fila)
+// ============================================================
+function abrirDetalle(n) {
+  const r = registrosTodos.find(x => String(x.n) === String(n));
+  if (!r) return;
+
+  const esInicio = r.tipo === 'FALLA_INICIO';
+  const fecha    = formatFechaCorta(r.hora);
+  const horaStr  = formatHoraCorta(r.hora);
+  const duracion = (r.durHMS && r.durHMS !== '-' && r.durHMS !== '0h 0m 0s') ? r.durHMS : 'No registrada';
+
+  // Crear overlay + panel si no existen
+  let overlay = document.getElementById('detalleOverlay');
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.id = 'detalleOverlay';
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:999;display:flex;align-items:flex-end;';
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) cerrarDetalle(); });
+    document.body.appendChild(overlay);
+  }
+
+  overlay.innerHTML = `
+    <div id="detallePanel" style="
+      background:var(--card);
+      width:100%;
+      border-radius:20px 20px 0 0;
+      padding:24px 20px 40px;
+      animation:slideUp 0.3s cubic-bezier(0.22,1,0.36,1) both;
+    ">
+      <div style="width:40px;height:4px;background:var(--muted);border-radius:2px;margin:0 auto 20px;opacity:0.4"></div>
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px">
+        <div class="h-icon ${esInicio ? 'inicio' : 'fin'}" style="width:44px;height:44px;font-size:20px">
+          ${esInicio ? '⚡' : '✅'}
+        </div>
+        <div>
+          <div style="font-size:18px;font-weight:600;color:${esInicio ? 'var(--accent)' : 'var(--green)'}">
+            ${esInicio ? 'Se fue la luz' : 'Volvió la luz'}
+          </div>
+          <div style="font-size:13px;color:var(--muted);margin-top:2px">Evento #${r.n}</div>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div style="background:var(--bg);border-radius:12px;padding:14px">
+          <div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin-bottom:6px">Fecha</div>
+          <div style="font-size:15px;font-weight:500">${fecha}</div>
+        </div>
+        <div style="background:var(--bg);border-radius:12px;padding:14px">
+          <div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin-bottom:6px">Hora</div>
+          <div style="font-size:15px;font-weight:500">${horaStr}</div>
+        </div>
+        ${!esInicio ? `
+        <div style="background:var(--bg);border-radius:12px;padding:14px;grid-column:1/-1">
+          <div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin-bottom:6px">Duración del corte</div>
+          <div style="font-size:20px;font-weight:300;color:var(--accent)">${duracion}</div>
+        </div>` : ''}
+        ${r.notas && r.notas !== '' && r.notas !== '-' ? `
+        <div style="background:var(--bg);border-radius:12px;padding:14px;grid-column:1/-1">
+          <div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin-bottom:6px">Notas</div>
+          <div style="font-size:14px">${r.notas}</div>
+        </div>` : ''}
+      </div>
+      <button onclick="cerrarDetalle()" style="
+        width:100%;margin-top:20px;padding:14px;
+        background:var(--card2);color:var(--text);
+        border:none;border-radius:12px;font-size:15px;cursor:pointer;
+      ">Cerrar</button>
+    </div>
+  `;
+
+  overlay.style.display = 'flex';
+}
+
+function cerrarDetalle() {
+  const overlay = document.getElementById('detalleOverlay');
+  if (overlay) overlay.style.display = 'none';
 }
 
 function renderPronostico(r) {
@@ -580,10 +729,44 @@ function calcularBateria() {
   return { pct, color, texto };
 }
 
+// ============================================================
+//  HELPERS DE FECHA Y HORA
+// ============================================================
+const DIAS   = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'];
+const MESES  = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+
+function parsearFecha(h) {
+  // Formato esperado: "2026-06-29 14:35:22"
+  if (!h) return null;
+  const s = h.toString().trim();
+  if (s.length < 16) return null;
+  try {
+    // Reemplazar espacio por T para que Date() lo parse correctamente
+    return new Date(s.replace(' ', 'T'));
+  } catch (e) {
+    return null;
+  }
+}
+
+function formatFechaCorta(h) {
+  const d = parsearFecha(h);
+  if (!d || isNaN(d)) return h || '--';
+  return DIAS[d.getDay()] + ' ' + d.getDate() + ' ' + MESES[d.getMonth()] + ' ' + d.getFullYear();
+}
+
+function formatHoraCorta(h) {
+  const d = parsearFecha(h);
+  if (!d || isNaN(d)) return '--';
+  const hh  = d.getHours();
+  const mm  = String(d.getMinutes()).padStart(2, '0');
+  const ap  = hh >= 12 ? 'PM' : 'AM';
+  const hh12 = hh % 12 || 12;
+  return hh12 + ':' + mm + ' ' + ap;
+}
+
 function formatHora(h) {
-  if (!h) return '--';
-  const s = h.toString();
-  return s.length >= 16 ? s.substring(8, 16) : s;
+  // Compatibilidad con llamadas antiguas — devuelve hora corta
+  return formatHoraCorta(h);
 }
 
 function mostrarVista(vista) {
@@ -615,13 +798,87 @@ async function registrarServiceWorker() {
   if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
   try {
     const reg = await navigator.serviceWorker.register('/sw.js');
-    // si ya hay permiso concedido de una sesión anterior, re-suscribimos
     if (Notification.permission === 'granted') {
       await suscribirPush(reg);
     }
+
+    // ── Escuchar mensajes del SW (push recibido mientras la app está abierta) ──
+    navigator.serviceWorker.addEventListener('message', (event) => {
+      if (event.data && event.data.tipo === 'PUSH_RECIBIDO') {
+        manejarPushEnVivo(event.data.datos);
+      }
+    });
   } catch (e) {
     console.log('SW no registrado:', e);
   }
+}
+
+// ============================================================
+//  ACTUALIZACIÓN EN VIVO — se ejecuta cuando el SW avisa de un push
+//  mientras la página está abierta. No espera el ciclo de 60s.
+// ============================================================
+function manejarPushEnVivo(pushDatos) {
+  const esFalla  = pushDatos.tipo === 'falla';    // viene del api/notify.js
+  const esRetorno = pushDatos.tipo === 'retorno';
+
+  // 1 · Actualizar el texto grande con animación de fadeSwap
+  const statusEl = document.getElementById('headerStatus');
+  const descEl   = document.getElementById('headerDesc');
+
+  if (statusEl) {
+    statusEl.classList.remove('animando');
+    // forzar reflow para reiniciar la animación si ya estaba corriendo
+    void statusEl.offsetWidth;
+    statusEl.classList.add('animando');
+
+    if (esFalla) {
+      statusEl.textContent = 'Sin luz';
+      statusEl.className   = 'header-status sin-luz animando';
+      if (descEl) descEl.textContent = pushDatos.cuerpo || 'Corte detectado';
+      // arrancar el contador desde ahora
+      if (!tiempoInicioFalla) tiempoInicioFalla = new Date();
+      if (!intervaloContador) intervaloContador = setInterval(actualizarContador, 1000);
+      document.getElementById('contadorWrap').style.display = 'block';
+      fallaActiva = true;
+    } else if (esRetorno) {
+      statusEl.textContent = 'Hay luz';
+      statusEl.className   = 'header-status con-luz animando';
+      if (descEl) descEl.textContent = pushDatos.cuerpo || 'Electricidad restaurada';
+      document.getElementById('contadorWrap').style.display = 'none';
+      tiempoInicioFalla = null;
+      if (intervaloContador) { clearInterval(intervaloContador); intervaloContador = null; }
+      fallaActiva = false;
+    }
+  }
+
+  // 2 · Insertar nueva fila en "Últimos eventos" (solo si la vista inicio está activa)
+  if (vistaActual === 'inicio') {
+    const lista = document.querySelector('#mainGrid .historial-list');
+    if (lista) {
+      const esInicio = esFalla;
+      const nuevoItem = document.createElement('div');
+      nuevoItem.className = 'historial-item nuevo';
+      nuevoItem.innerHTML = `
+        <div class="h-icon ${esInicio ? 'inicio' : 'fin'}">${esInicio ? '⚡' : '✅'}</div>
+        <div class="h-body">
+          <div class="h-tipo" style="color:${esInicio ? 'var(--accent)' : 'var(--green)'}">
+            ${esInicio ? 'Se fue la luz' : 'Volvió la luz'}
+          </div>
+          <div class="h-hora">ahora mismo</div>
+        </div>
+        <div class="h-dur"></div>
+      `;
+      // Insertar al inicio de la lista, antes del primer hijo actual
+      lista.insertBefore(nuevoItem, lista.firstChild);
+
+      // Quitar la clase de animación después de que termina (evita que se repita)
+      setTimeout(() => nuevoItem.classList.remove('nuevo'), 400);
+    }
+  }
+
+  // 3 · Forzar una recarga completa de datos 3 segundos después,
+  //     para que el historial y las estadísticas queden sincronizados con el Sheet
+  setTimeout(cargarDatos, 3000);
 }
 
 function urlBase64ToUint8Array(base64String) {
