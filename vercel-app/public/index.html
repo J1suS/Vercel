@@ -389,6 +389,16 @@ async function cargarMas() {
   cargandoMas = false;
 }
 
+function esTipoInicio(tipo) {
+  const t = (tipo || '').trim();
+  return t === 'ALERTA' || t === 'FALLA_INICIO';
+}
+
+function esTipoFin(tipo) {
+  const t = (tipo || '').trim();
+  return t === 'CORTE' || t === 'FALLA_FIN';
+}
+
 function actualizarHeader() {
   const statusEl = document.getElementById('headerStatus');
   const descEl   = document.getElementById('headerDesc');
@@ -399,7 +409,7 @@ function actualizarHeader() {
   if (fallaActiva && datos.ultimaFalla) {
     statusEl.textContent = 'Sin luz';
     statusEl.className   = 'header-status sin-luz';
-    descEl.textContent   = 'Corte activo desde las ' + formatHora(datos.ultimaFalla.hora);
+    descEl.textContent   = 'Corte activo desde las ' + formatHoraCorta(datos.ultimaFalla.hora);
     contWrap.style.display = 'block';
 
     if (!tiempoInicioFalla) {
@@ -412,10 +422,18 @@ function actualizarHeader() {
     statusEl.textContent = 'Hay luz';
     statusEl.className   = 'header-status con-luz';
 
-    const ultimo = datos.registros.find(r => r.tipo === 'FALLA_FIN');
-    descEl.textContent = ultimo
-      ? 'Última falla: ' + formatHora(ultimo.hora) + ' · ' + ultimo.durHMS
-      : 'Sin fallas registradas';
+    // buscar el último corte completo (CORTE o FALLA_FIN)
+    const ultimo = registrosTodos.find(r => esTipoFin(r.tipo));
+    if (ultimo) {
+      const horaFin = esTipoFin(ultimo.tipo) && ultimo.notas && ultimo.notas.length >= 16
+        ? formatHoraCorta(ultimo.notas)   // para CORTE, notas = hora fin
+        : formatHoraCorta(ultimo.hora);
+      descEl.textContent = 'Última falla: ' + formatFechaCorta(ultimo.hora) +
+        ' · Volvió a las ' + horaFin +
+        (ultimo.durHMS && ultimo.durHMS !== '-' ? ' · ' + ultimo.durHMS : '');
+    } else {
+      descEl.textContent = 'Sin fallas registradas';
+    }
 
     contWrap.style.display = 'none';
     tiempoInicioFalla = null;
@@ -607,19 +625,29 @@ function renderAjustes() {
 }
 
 function itemHistorial(r) {
-  const esInicio  = r.tipo === 'FALLA_INICIO';
-  const fecha     = formatFechaCorta(r.hora);
-  const horaStr   = formatHoraCorta(r.hora);
-  const duracion  = (r.durHMS && r.durHMS !== '-' && r.durHMS !== '0h 0m 0s') ? r.durHMS : '';
+  const esInicio = esTipoInicio(r.tipo);
+  const esFin    = esTipoFin(r.tipo);
+  const fecha    = formatFechaCorta(r.hora);
+  const horaIni  = formatHoraCorta(r.hora);
+  // Para CORTE, notas contiene la hora de fin
+  const horaFin  = esFin && r.notas && r.notas.length >= 16
+    ? formatHoraCorta(r.notas) : '';
+  const duracion = (r.durHMS && r.durHMS !== '-' && r.durHMS !== '0h 0m 0s') ? r.durHMS : '';
+
+  const etiqueta = esInicio ? 'Se fue la luz'
+    : esFin ? 'Volvió la luz'
+    : r.tipo;  // fallback para tipos desconocidos
+
+  const color = esInicio ? 'var(--accent)' : esFin ? 'var(--green)' : 'var(--muted)';
+  const icono = esInicio ? '⚡' : esFin ? '✅' : '❓';
+  const clase = esInicio ? 'inicio' : 'fin';
 
   return `
     <div class="historial-item" onclick="abrirDetalle(${r.n})">
-      <div class="h-icon ${esInicio ? 'inicio' : 'fin'}">${esInicio ? '⚡' : '✅'}</div>
+      <div class="h-icon ${clase}">${icono}</div>
       <div class="h-body">
-        <div class="h-tipo" style="color:${esInicio ? 'var(--accent)' : 'var(--green)'}">
-          ${esInicio ? 'Se fue la luz' : 'Volvió la luz'}
-        </div>
-        <div class="h-hora">${fecha} · ${horaStr}</div>
+        <div class="h-tipo" style="color:${color}">${etiqueta}</div>
+        <div class="h-hora">${fecha} · ${horaIni}${horaFin ? ' → ' + horaFin : ''}</div>
       </div>
       <div class="h-dur">${duracion}</div>
     </div>
@@ -633,12 +661,19 @@ function abrirDetalle(n) {
   const r = registrosTodos.find(x => String(x.n) === String(n));
   if (!r) return;
 
-  const esInicio = r.tipo === 'FALLA_INICIO';
+  const esInicio = esTipoInicio(r.tipo);
+  const esFin    = esTipoFin(r.tipo);
   const fecha    = formatFechaCorta(r.hora);
-  const horaStr  = formatHoraCorta(r.hora);
-  const duracion = (r.durHMS && r.durHMS !== '-' && r.durHMS !== '0h 0m 0s') ? r.durHMS : 'No registrada';
+  const horaIni  = formatHoraCorta(r.hora);
+  const horaFin  = esFin && r.notas && r.notas.length >= 16
+    ? formatHoraCorta(r.notas) : '';
+  const duracion = (r.durHMS && r.durHMS !== '-' && r.durHMS !== '0h 0m 0s')
+    ? r.durHMS : 'No registrada';
+  const etiqueta = esInicio ? 'Se fue la luz' : esFin ? 'Volvió la luz' : r.tipo;
+  const color    = esInicio ? 'var(--accent)' : esFin ? 'var(--green)' : 'var(--muted)';
+  const icono    = esInicio ? '⚡' : esFin ? '✅' : '❓';
+  const clase    = esInicio ? 'inicio' : 'fin';
 
-  // Crear overlay + panel si no existen
   let overlay = document.getElementById('detalleOverlay');
   if (!overlay) {
     overlay = document.createElement('div');
@@ -649,43 +684,40 @@ function abrirDetalle(n) {
   }
 
   overlay.innerHTML = `
-    <div id="detallePanel" style="
-      background:var(--card);
-      width:100%;
+    <div style="
+      background:var(--card);width:100%;
       border-radius:20px 20px 0 0;
       padding:24px 20px 40px;
       animation:slideUp 0.3s cubic-bezier(0.22,1,0.36,1) both;
     ">
       <div style="width:40px;height:4px;background:var(--muted);border-radius:2px;margin:0 auto 20px;opacity:0.4"></div>
       <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px">
-        <div class="h-icon ${esInicio ? 'inicio' : 'fin'}" style="width:44px;height:44px;font-size:20px">
-          ${esInicio ? '⚡' : '✅'}
-        </div>
+        <div class="h-icon ${clase}" style="width:44px;height:44px;font-size:20px">${icono}</div>
         <div>
-          <div style="font-size:18px;font-weight:600;color:${esInicio ? 'var(--accent)' : 'var(--green)'}">
-            ${esInicio ? 'Se fue la luz' : 'Volvió la luz'}
-          </div>
+          <div style="font-size:18px;font-weight:600;color:${color}">${etiqueta}</div>
           <div style="font-size:13px;color:var(--muted);margin-top:2px">Evento #${r.n}</div>
         </div>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-        <div style="background:var(--bg);border-radius:12px;padding:14px">
+        <div style="background:var(--bg);border-radius:12px;padding:14px;grid-column:1/-1">
           <div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin-bottom:6px">Fecha</div>
           <div style="font-size:15px;font-weight:500">${fecha}</div>
         </div>
         <div style="background:var(--bg);border-radius:12px;padding:14px">
-          <div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin-bottom:6px">Hora</div>
-          <div style="font-size:15px;font-weight:500">${horaStr}</div>
+          <div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin-bottom:6px">
+            ${esInicio ? 'Hora del corte' : 'Hora de inicio'}
+          </div>
+          <div style="font-size:15px;font-weight:500">${horaIni}</div>
         </div>
-        ${!esInicio ? `
+        ${horaFin ? `
+        <div style="background:var(--bg);border-radius:12px;padding:14px">
+          <div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin-bottom:6px">Hora de retorno</div>
+          <div style="font-size:15px;font-weight:500;color:var(--green)">${horaFin}</div>
+        </div>` : '<div></div>'}
+        ${esFin ? `
         <div style="background:var(--bg);border-radius:12px;padding:14px;grid-column:1/-1">
           <div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin-bottom:6px">Duración del corte</div>
-          <div style="font-size:20px;font-weight:300;color:var(--accent)">${duracion}</div>
-        </div>` : ''}
-        ${r.notas && r.notas !== '' && r.notas !== '-' ? `
-        <div style="background:var(--bg);border-radius:12px;padding:14px;grid-column:1/-1">
-          <div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin-bottom:6px">Notas</div>
-          <div style="font-size:14px">${r.notas}</div>
+          <div style="font-size:22px;font-weight:300;color:var(--accent)">${duracion}</div>
         </div>` : ''}
       </div>
       <button onclick="cerrarDetalle()" style="
@@ -695,7 +727,6 @@ function abrirDetalle(n) {
       ">Cerrar</button>
     </div>
   `;
-
   overlay.style.display = 'flex';
 }
 
@@ -818,8 +849,10 @@ async function registrarServiceWorker() {
 //  mientras la página está abierta. No espera el ciclo de 60s.
 // ============================================================
 function manejarPushEnVivo(pushDatos) {
-  const esFalla  = pushDatos.tipo === 'falla';    // viene del api/notify.js
-  const esRetorno = pushDatos.tipo === 'retorno';
+  // Apps Script v5 siempre normaliza el tipoPush a FALLA_INICIO / FALLA_FIN
+  const tipo      = (pushDatos.tipo || '').trim();
+  const esFalla   = tipo === 'FALLA_INICIO';
+  const esRetorno = tipo === 'FALLA_FIN';
 
   // 1 · Actualizar el texto grande con animación de fadeSwap
   const statusEl = document.getElementById('headerStatus');
@@ -827,15 +860,13 @@ function manejarPushEnVivo(pushDatos) {
 
   if (statusEl) {
     statusEl.classList.remove('animando');
-    // forzar reflow para reiniciar la animación si ya estaba corriendo
-    void statusEl.offsetWidth;
+    void statusEl.offsetWidth;  // forzar reflow para reiniciar la animación
     statusEl.classList.add('animando');
 
     if (esFalla) {
       statusEl.textContent = 'Sin luz';
       statusEl.className   = 'header-status sin-luz animando';
       if (descEl) descEl.textContent = pushDatos.cuerpo || 'Corte detectado';
-      // arrancar el contador desde ahora
       if (!tiempoInicioFalla) tiempoInicioFalla = new Date();
       if (!intervaloContador) intervaloContador = setInterval(actualizarContador, 1000);
       document.getElementById('contadorWrap').style.display = 'block';
@@ -851,33 +882,28 @@ function manejarPushEnVivo(pushDatos) {
     }
   }
 
-  // 2 · Insertar nueva fila en "Últimos eventos" (solo si la vista inicio está activa)
+  // 2 · Insertar nueva fila animada en "Últimos eventos"
   if (vistaActual === 'inicio') {
     const lista = document.querySelector('#mainGrid .historial-list');
     if (lista) {
-      const esInicio = esFalla;
       const nuevoItem = document.createElement('div');
       nuevoItem.className = 'historial-item nuevo';
       nuevoItem.innerHTML = `
-        <div class="h-icon ${esInicio ? 'inicio' : 'fin'}">${esInicio ? '⚡' : '✅'}</div>
+        <div class="h-icon ${esFalla ? 'inicio' : 'fin'}">${esFalla ? '⚡' : '✅'}</div>
         <div class="h-body">
-          <div class="h-tipo" style="color:${esInicio ? 'var(--accent)' : 'var(--green)'}">
-            ${esInicio ? 'Se fue la luz' : 'Volvió la luz'}
+          <div class="h-tipo" style="color:${esFalla ? 'var(--accent)' : 'var(--green)'}">
+            ${esFalla ? 'Se fue la luz' : 'Volvió la luz'}
           </div>
           <div class="h-hora">ahora mismo</div>
         </div>
         <div class="h-dur"></div>
       `;
-      // Insertar al inicio de la lista, antes del primer hijo actual
       lista.insertBefore(nuevoItem, lista.firstChild);
-
-      // Quitar la clase de animación después de que termina (evita que se repita)
       setTimeout(() => nuevoItem.classList.remove('nuevo'), 400);
     }
   }
 
-  // 3 · Forzar una recarga completa de datos 3 segundos después,
-  //     para que el historial y las estadísticas queden sincronizados con el Sheet
+  // 3 · Recargar datos 3s después para sincronizar con el Sheet
   setTimeout(cargarDatos, 3000);
 }
 
