@@ -409,7 +409,7 @@ function actualizarHeader() {
   fallaActiva = datos.fallaActiva;
 
   if (fallaActiva && datos.ultimaFalla) {
-    statusEl.textContent = 'Sin luz';
+    statusEl.textContent = '🚨 Sin luz';
     statusEl.className   = 'header-status sin-luz';
     descEl.textContent   = 'Corte activo desde las ' + formatHoraCorta(datos.ultimaFalla.hora);
     contWrap.style.display = 'block';
@@ -421,7 +421,7 @@ function actualizarHeader() {
       intervaloContador = setInterval(actualizarContador, 1000);
     }
   } else {
-    statusEl.textContent = 'Hay luz';
+    statusEl.textContent = '💡 Si hay luz';
     statusEl.className   = 'header-status con-luz';
 
     // buscar el último corte completo (CORTE o FALLA_FIN)
@@ -638,7 +638,7 @@ function itemHistorial(r) {
 
   const etiqueta = esInicio ? 'Se fue la luz' : esFin ? 'Volvió la luz' : r.tipo;
   const color    = esInicio ? 'var(--accent)' : esFin ? 'var(--green)' : 'var(--muted)';
-  const icono    = esInicio ? '⚡' : esFin ? '✅' : '❓';
+  const icono    = esInicio ? '🔌' : esFin ? '⚡' : '❓';
   const clase    = esInicio ? 'inicio' : 'fin';
 
   return `
@@ -673,7 +673,7 @@ function abrirDetalle(n) {
     ? r.durHMS : 'No registrada';
   const etiqueta = esInicio ? 'Se fue la luz' : esFin ? 'Volvió la luz' : r.tipo;
   const color    = esInicio ? 'var(--accent)' : esFin ? 'var(--green)' : 'var(--muted)';
-  const icono    = esInicio ? '⚡' : esFin ? '✅' : '❓';
+  const icono    = esInicio ? '🔌' : esFin ? '⚡' : '❓';
   const clase    = esInicio ? 'inicio' : 'fin';
 
   let overlay = document.getElementById('detalleOverlay');
@@ -872,7 +872,7 @@ function manejarPushEnVivo(pushDatos) {
     statusEl.classList.add('animando');
 
     if (esFalla) {
-      statusEl.textContent = 'Sin luz';
+      statusEl.textContent = '🚨 Sin luz';
       statusEl.className   = 'header-status sin-luz animando';
       if (descEl) descEl.textContent = pushDatos.cuerpo || 'Corte detectado';
       if (!tiempoInicioFalla) tiempoInicioFalla = new Date();
@@ -880,7 +880,7 @@ function manejarPushEnVivo(pushDatos) {
       document.getElementById('contadorWrap').style.display = 'block';
       fallaActiva = true;
     } else if (esRetorno) {
-      statusEl.textContent = 'Hay luz';
+      statusEl.textContent = '💡 Si hay luz';
       statusEl.className   = 'header-status con-luz animando';
       if (descEl) descEl.textContent = pushDatos.cuerpo || 'Electricidad restaurada';
       document.getElementById('contadorWrap').style.display = 'none';
@@ -897,7 +897,7 @@ function manejarPushEnVivo(pushDatos) {
       const nuevoItem = document.createElement('div');
       nuevoItem.className = 'historial-item nuevo';
       nuevoItem.innerHTML = `
-        <div class="h-icon ${esFalla ? 'inicio' : 'fin'}">${esFalla ? '⚡' : '✅'}</div>
+        <div class="h-icon ${esFalla ? 'inicio' : 'fin'}">${esFalla ? '🔌' : '⚡'}</div>
         <div class="h-body">
           <div class="h-tipo" style="color:${esFalla ? 'var(--accent)' : 'var(--green)'}">
             ${esFalla ? 'Se fue la luz' : 'Volvió la luz'}
