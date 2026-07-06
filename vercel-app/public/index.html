@@ -1164,11 +1164,10 @@ function timelineHTML(eventosDelDia) {
 }
 
 function graficaDia(eventosDelDia) {
-  const W = 320, H = 100, PL = 32, PR = 8, PT = 8, PB = 22;
+  const W = 320, H = 110, PL = 32, PR = 8, PT = 8, PB = 22;
   const pw = W - PL - PR, ph = H - PT - PB;
 
   // ── Extraer puntos de voltaje reales ──────────────────────
-  // Buscar HEARTBEAT y ALERTA que traigan voltaje en notas ("108.5V")
   const puntosVoltaje = [];
   for (const ev of eventosDelDia) {
     const tipo = (ev.tipo || '').trim();
@@ -1181,76 +1180,118 @@ function graficaDia(eventosDelDia) {
         puntosVoltaje.push({ t, v: parseFloat(match[1]) });
       }
     }
-    // CORTE: sabemos que al inicio el voltaje era ~0V
-    if ((tipo === 'CORTE' || tipo === 'FALLA_FIN')) {
-      const dS = parsearFecha(ev.hora);
-      const dE = ev.notas && ev.notas.length >= 10 ? parsearFecha(ev.notas) : null;
-      if (dS) {
-        const t = (dS.getHours() * 60 + dS.getMinutes()) / 1440;
-        puntosVoltaje.push({ t, v: 0 });
-      }
-      if (dE) {
-        const t = (dE.getHours() * 60 + dE.getMinutes()) / 1440;
-        puntosVoltaje.push({ t, v: 0 });
-      }
-    }
   }
   puntosVoltaje.sort((a, b) => a.t - b.t);
-
   const tieneVoltaje = puntosVoltaje.length > 0;
 
-  // ── Periodos de corte ─────────────────────────────────────
-  const periodos = [];
+  // ── Periodos de corte y subida ────────────────────────────
+  const periodosCorte  = [];
+  const periodosSubida = [];
+
   for (const ev of eventosDelDia) {
-    if (esTipoFin(ev.tipo) && ev.notas && ev.notas.length >= 10) {
+    const tipo = (ev.tipo || '').trim();
+
+    if ((tipo === 'CORTE' || tipo === 'FALLA_FIN') && ev.notas && ev.notas.length >= 10) {
       const dS = parsearFecha(ev.hora);
       const dE = parsearFecha(ev.notas);
       if (dS && dE) {
-        periodos.push({
+        periodosCorte.push({
           ini: (dS.getHours() * 60 + dS.getMinutes()) / 1440,
           fin: (dE.getHours() * 60 + dE.getMinutes()) / 1440
         });
       }
-    } else if (esTipoInicio(ev.tipo)) {
+    } else if (tipo === 'ALERTA' || tipo === 'FALLA_INICIO') {
       const dS = parsearFecha(ev.hora);
       if (dS) {
         const t = (dS.getHours() * 60 + dS.getMinutes()) / 1440;
-        periodos.push({ ini: t, fin: Math.min(t + 0.03, 1) });
+        periodosCorte.push({ ini: t, fin: Math.min(t + 0.03, 1) });
+      }
+    } else if (tipo === 'SUBIDA') {
+      const dS = parsearFecha(ev.hora);
+      if (dS) {
+        const t = (dS.getHours() * 60 + dS.getMinutes()) / 1440;
+        periodosSubida.push({ ini: t, fin: Math.min(t + 0.02, 1) });
       }
     }
   }
 
-  // ── Escala Y ──────────────────────────────────────────────
-  const Y_MAX = tieneVoltaje ? 135 : 1;
-  const Y_MIN = 0;
-  const yPos = (v) => PT + ph - (v - Y_MIN) / (Y_MAX - Y_MIN) * ph;
-
-  // ── Rectángulos de corte ──────────────────────────────────
-  let rects = '';
-  for (const p of periodos) {
-    const x = PL + p.ini * pw;
-    const w = Math.max((p.fin - p.ini) * pw, 2);
-    rects += `<rect x="${x.toFixed(1)}" y="${PT}" width="${w.toFixed(1)}" height="${ph}" fill="rgba(233,69,96,0.25)" rx="2"/>`;
+  // También detectar subidas desde puntos de voltaje: si supera 125V
+  if (tieneVoltaje) {
+    for (const p of puntosVoltaje) {
+      if (p.v > 125) {
+        periodosSubida.push({ ini: Math.max(0, p.t - 0.005), fin: Math.min(1, p.t + 0.005) });
+      }
+    }
   }
 
-  // ── Línea de voltaje o ON/OFF ─────────────────────────────
-  let linea = '';
-  if (tieneVoltaje) {
-    // Construir path con puntos reales interpolados
-    let d = '';
-    for (let i = 0; i <= 120; i++) {
-      const t = i / 120;
-      const x = PL + t * pw;
+  // ── Escala Y: 0V – 150V ───────────────────────────────────
+  const Y_MAX = 150;
+  const Y_MIN = 0;
+  const yPos  = (v) => PT + ph - (v - Y_MIN) / (Y_MAX - Y_MIN) * ph;
 
-      // Interpolación: buscar los dos puntos más cercanos
-      let v = 110; // nominal
-      const enCorte = periodos.some(p => t >= p.ini && t <= p.fin);
+  // ── Rectángulos de corte (rojo) ───────────────────────────
+  let rects = '';
+  for (const p of periodosCorte) {
+    const x = PL + p.ini * pw;
+    const w = Math.max((p.fin - p.ini) * pw, 3);
+    rects += `<rect x="${x.toFixed(1)}" y="${PT}" width="${w.toFixed(1)}" height="${ph}" fill="rgba(233,69,96,0.28)" rx="2"/>`;
+  }
+  // Rectángulos de subida (naranja/amarillo)
+  for (const p of periodosSubida) {
+    const x = PL + p.ini * pw;
+    const w = Math.max((p.fin - p.ini) * pw, 3);
+    rects += `<rect x="${x.toFixed(1)}" y="${PT}" width="${w.toFixed(1)}" height="${ph}" fill="rgba(245,166,35,0.28)" rx="2"/>`;
+  }
+
+  // ── Línea de voltaje ──────────────────────────────────────
+  let linea = '';
+
+  if (tieneVoltaje) {
+    let d = '';
+    let enCorteAnterior = false;
+
+    for (let i = 0; i <= 200; i++) {
+      const t = i / 200;
+      const x = PL + t * pw;
+      const enCorte = periodosCorte.some(p => t >= p.ini && t <= p.fin);
+
+      // Al entrar en corte: dibujar la caída a 0V explícita
+      if (enCorte && !enCorteAnterior) {
+        // Punto justo antes del corte al voltaje actual
+        let vAntes = 110;
+        const pAntes = puntosVoltaje.filter(p => p.t <= t);
+        if (pAntes.length > 0) vAntes = pAntes[pAntes.length - 1].v;
+        const yAntes = yPos(Math.min(Y_MAX, vAntes));
+        d += 'L' + x.toFixed(1) + ',' + yAntes.toFixed(1) + ' ';
+        // Caída vertical a 0V
+        d += 'L' + x.toFixed(1) + ',' + yPos(0).toFixed(1) + ' ';
+        enCorteAnterior = true;
+        continue;
+      }
+
+      // Durante el corte: línea en 0V
       if (enCorte) {
-        v = 0;
-      } else if (puntosVoltaje.length === 1) {
+        d += 'L' + x.toFixed(1) + ',' + yPos(0).toFixed(1) + ' ';
+        enCorteAnterior = true;
+        continue;
+      }
+
+      // Al salir del corte: subida vertical desde 0V al voltaje actual
+      if (!enCorte && enCorteAnterior) {
+        let vDespues = 110;
+        const pDespues = puntosVoltaje.filter(p => p.t >= t);
+        if (pDespues.length > 0) vDespues = pDespues[0].v;
+        // Subida vertical desde 0V
+        d += 'L' + x.toFixed(1) + ',' + yPos(0).toFixed(1) + ' ';
+        d += 'L' + x.toFixed(1) + ',' + yPos(Math.min(Y_MAX, vDespues)).toFixed(1) + ' ';
+        enCorteAnterior = false;
+      }
+
+      // Interpolación normal entre puntos conocidos
+      let v = 110;
+      if (puntosVoltaje.length === 1) {
         v = puntosVoltaje[0].v;
-      } else {
-        // Interpolación lineal entre puntos conocidos
+      } else if (puntosVoltaje.length > 1) {
         let antes = null, despues = null;
         for (const p of puntosVoltaje) {
           if (p.t <= t) antes = p;
@@ -1259,31 +1300,40 @@ function graficaDia(eventosDelDia) {
         if (antes && despues && antes !== despues) {
           const ratio = (t - antes.t) / (despues.t - antes.t);
           v = antes.v + (despues.v - antes.v) * ratio;
-        } else if (antes) v = antes.v;
-        else if (despues) v = despues.v;
-        // Pequeño ruido visual para que no parezca una línea perfectamente recta
-        v += Math.sin(i * 7.3) * 1.5 + Math.sin(i * 13.7) * 0.8;
+        } else if (antes)  v = antes.v;
+        else if (despues)  v = despues.v;
       }
+      v += Math.sin(i * 7.3) * 0.8 + Math.sin(i * 13.7) * 0.4;
+      v = Math.max(Y_MIN, Math.min(Y_MAX, v));
 
-      const y = yPos(Math.max(0, Math.min(Y_MAX, v)));
-      d += (i === 0 ? 'M' : 'L') + x.toFixed(1) + ',' + y.toFixed(1) + ' ';
+      const y = yPos(v);
+      d += (d === '' ? 'M' : 'L') + x.toFixed(1) + ',' + y.toFixed(1) + ' ';
     }
-    linea = `<path d="${d}" fill="none" stroke="#4ecca3" stroke-width="2" stroke-linejoin="round"/>`;
 
-    // Líneas de umbral (visual)
-    const y90 = yPos(90).toFixed(1);
+    linea = `<path d="${d.trim()}" fill="none" stroke="#4ecca3" stroke-width="1.8" stroke-linejoin="round"/>`;
+
+    // Líneas de umbral punteadas
+    const y90  = yPos(90).toFixed(1);
     const y125 = yPos(125).toFixed(1);
-    linea += `<line x1="${PL}" y1="${y90}" x2="${W-PR}" y2="${y90}" stroke="rgba(245,166,35,0.4)" stroke-width="1" stroke-dasharray="3,3"/>`;
-    linea += `<line x1="${PL}" y1="${y125}" x2="${W-PR}" y2="${y125}" stroke="rgba(233,69,96,0.4)" stroke-width="1" stroke-dasharray="3,3"/>`;
+    linea += `<line x1="${PL}" y1="${y90}"  x2="${W-PR}" y2="${y90}"  stroke="rgba(245,166,35,0.5)" stroke-width="1" stroke-dasharray="3,3"/>`;
+    linea += `<line x1="${PL}" y1="${y125}" x2="${W-PR}" y2="${y125}" stroke="rgba(233,69,96,0.5)"  stroke-width="1" stroke-dasharray="3,3"/>`;
+
+    // Puntos de medición reales
+    for (const p of puntosVoltaje) {
+      const cx = PL + p.t * pw;
+      const cy = yPos(Math.max(Y_MIN, Math.min(Y_MAX, p.v)));
+      linea += `<circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="2.5" fill="#4ecca3" opacity="0.9"/>`;
+    }
+
   } else {
-    // Sin datos de voltaje: caer a ON/OFF
+    // Sin datos de voltaje → visualización ON/OFF
     let d = '';
     for (let i = 0; i <= 120; i++) {
       const t = i / 120;
       const x = PL + t * pw;
-      const enCorte = periodos.some(p => t >= p.ini && t <= p.fin);
+      const enCorte = periodosCorte.some(p => t >= p.ini && t <= p.fin);
       const ruido = Math.sin(i * 6.1) * 0.04 + Math.sin(i * 14.3) * 0.02;
-      const y = enCorte ? PT + ph * 0.82 : PT + ph * 0.12 + ruido * ph;
+      const y = enCorte ? PT + ph * 0.9 : PT + ph * 0.12 + ruido * ph;
       d += (i === 0 ? 'M' : 'L') + x.toFixed(1) + ',' + y.toFixed(1) + ' ';
     }
     linea = `<path d="${d}" fill="none" stroke="#4ecca3" stroke-width="2" stroke-linejoin="round"/>`;
@@ -1296,34 +1346,33 @@ function graficaDia(eventosDelDia) {
     etiq += `<text x="${x.toFixed(1)}" y="${H-5}" font-size="8" fill="rgba(255,255,255,0.4)" text-anchor="middle">${String(h).padStart(2,'0')}h</text>`;
   }
 
-  // ── Etiquetas Y ────────────────────────────────────────────
-  const labelYTop = tieneVoltaje ? '135V' : 'ON';
-  const labelYBot = tieneVoltaje ? '0V'   : 'OFF';
-
-  // Puntos de voltaje como círculos
-  let puntosSVG = '';
+  // Línea de referencia 110V (nominal)
+  let ref110 = '';
   if (tieneVoltaje) {
-    for (const p of puntosVoltaje) {
-      const cx = PL + p.t * pw;
-      const cy = yPos(Math.max(0, Math.min(Y_MAX, p.v)));
-      puntosSVG += `<circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="2.5" fill="#4ecca3" opacity="0.8"/>`;
-    }
+    const y110 = yPos(110).toFixed(1);
+    ref110 = `<line x1="${PL}" y1="${y110}" x2="${W-PR}" y2="${y110}" stroke="rgba(255,255,255,0.12)" stroke-width="1"/>`;
+    ref110 += `<text x="${PL-4}" y="${parseFloat(y110)+3}" font-size="6" fill="rgba(255,255,255,0.3)" text-anchor="end">110V</text>`;
   }
+
+  const labelYTop = tieneVoltaje ? '150V' : 'ON';
+  const labelYBot = tieneVoltaje ? '0V'   : 'OFF';
 
   return `<div style="overflow-x:auto;">
     <svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">
-      <line x1="${PL}" y1="${PT}" x2="${PL}" y2="${PT+ph}" stroke="rgba(255,255,255,0.2)" stroke-width="1"/>
-      <line x1="${PL}" y1="${PT+ph}" x2="${W-PR}" y2="${PT+ph}" stroke="rgba(255,255,255,0.2)" stroke-width="1"/>
+      <line x1="${PL}" y1="${PT}"    x2="${PL}"   y2="${PT+ph}" stroke="rgba(255,255,255,0.2)" stroke-width="1"/>
+      <line x1="${PL}" y1="${PT+ph}" x2="${W-PR}"  y2="${PT+ph}" stroke="rgba(255,255,255,0.2)" stroke-width="1"/>
+      ${ref110}
       ${rects}
       ${linea}
-      ${puntosSVG}
       ${etiq}
-      <text x="${PL-4}" y="${PT+6}" font-size="7" fill="rgba(255,255,255,0.4)" text-anchor="end">${labelYTop}</text>
+      <text x="${PL-4}" y="${PT+6}"  font-size="7" fill="rgba(255,255,255,0.4)" text-anchor="end">${labelYTop}</text>
       <text x="${PL-4}" y="${PT+ph}" font-size="7" fill="rgba(255,255,255,0.4)" text-anchor="end">${labelYBot}</text>
     </svg>
   </div>
   <div style="font-size:10px;color:rgba(255,255,255,0.35);text-align:right;margin-top:4px;">
-    ${tieneVoltaje ? '— 90V umbral bajón  — 125V umbral subida' : 'Estado basado en eventos registrados'}
+    ${tieneVoltaje
+      ? '<span style="color:rgba(245,166,35,0.8)">▬</span> 90V bajón &nbsp; <span style="color:rgba(233,69,96,0.8)">▬</span> 125V subida'
+      : 'Estado basado en eventos registrados'}
   </div>`;
 }
 
