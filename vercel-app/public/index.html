@@ -1172,10 +1172,42 @@ function timelineHTML(eventosDelDia) {
 }
 
 function graficaDia(eventosDelDia) {
-  const W = 320, H = 90, PL = 32, PR = 8, PT = 8, PB = 22;
+  const W = 320, H = 100, PL = 32, PR = 8, PT = 8, PB = 22;
   const pw = W - PL - PR, ph = H - PT - PB;
 
-  // Periodos de corte como fracción del día
+  // ── Extraer puntos de voltaje reales ──────────────────────
+  // Buscar HEARTBEAT y ALERTA que traigan voltaje en notas ("108.5V")
+  const puntosVoltaje = [];
+  for (const ev of eventosDelDia) {
+    const tipo = (ev.tipo || '').trim();
+    if (tipo === 'HEARTBEAT' || tipo === 'ALERTA') {
+      const d = parsearFecha(ev.hora);
+      if (!d) continue;
+      const match = (ev.notas || '').match(/(\d+(?:\.\d+)?)V/);
+      if (match) {
+        const t = (d.getHours() * 60 + d.getMinutes()) / 1440;
+        puntosVoltaje.push({ t, v: parseFloat(match[1]) });
+      }
+    }
+    // CORTE: sabemos que al inicio el voltaje era ~0V
+    if ((tipo === 'CORTE' || tipo === 'FALLA_FIN')) {
+      const dS = parsearFecha(ev.hora);
+      const dE = ev.notas && ev.notas.length >= 10 ? parsearFecha(ev.notas) : null;
+      if (dS) {
+        const t = (dS.getHours() * 60 + dS.getMinutes()) / 1440;
+        puntosVoltaje.push({ t, v: 0 });
+      }
+      if (dE) {
+        const t = (dE.getHours() * 60 + dE.getMinutes()) / 1440;
+        puntosVoltaje.push({ t, v: 0 });
+      }
+    }
+  }
+  puntosVoltaje.sort((a, b) => a.t - b.t);
+
+  const tieneVoltaje = puntosVoltaje.length > 0;
+
+  // ── Periodos de corte ─────────────────────────────────────
   const periodos = [];
   for (const ev of eventosDelDia) {
     if (esTipoFin(ev.tipo) && ev.notas && ev.notas.length >= 10) {
@@ -1196,7 +1228,12 @@ function graficaDia(eventosDelDia) {
     }
   }
 
-  // Rectángulos de corte
+  // ── Escala Y ──────────────────────────────────────────────
+  const Y_MAX = tieneVoltaje ? 135 : 1;
+  const Y_MIN = 0;
+  const yPos = (v) => PT + ph - (v - Y_MIN) / (Y_MAX - Y_MIN) * ph;
+
+  // ── Rectángulos de corte ──────────────────────────────────
   let rects = '';
   for (const p of periodos) {
     const x = PL + p.ini * pw;
@@ -1204,22 +1241,81 @@ function graficaDia(eventosDelDia) {
     rects += `<rect x="${x.toFixed(1)}" y="${PT}" width="${w.toFixed(1)}" height="${ph}" fill="rgba(233,69,96,0.25)" rx="2"/>`;
   }
 
-  // Línea de estado (1=on, 0=off)
-  let d = '';
-  for (let i = 0; i <= 120; i++) {
-    const t = i / 120;
-    const x = PL + t * pw;
-    const enCorte = periodos.some(p => t >= p.ini && t <= p.fin);
-    const ruido = Math.sin(i * 6.1) * 0.04 + Math.sin(i * 14.3) * 0.02;
-    const y = enCorte ? PT + ph * 0.82 : PT + ph * 0.12 + ruido * ph;
-    d += (i === 0 ? 'M' : 'L') + x.toFixed(1) + ',' + y.toFixed(1) + ' ';
+  // ── Línea de voltaje o ON/OFF ─────────────────────────────
+  let linea = '';
+  if (tieneVoltaje) {
+    // Construir path con puntos reales interpolados
+    let d = '';
+    for (let i = 0; i <= 120; i++) {
+      const t = i / 120;
+      const x = PL + t * pw;
+
+      // Interpolación: buscar los dos puntos más cercanos
+      let v = 110; // nominal
+      const enCorte = periodos.some(p => t >= p.ini && t <= p.fin);
+      if (enCorte) {
+        v = 0;
+      } else if (puntosVoltaje.length === 1) {
+        v = puntosVoltaje[0].v;
+      } else {
+        // Interpolación lineal entre puntos conocidos
+        let antes = null, despues = null;
+        for (const p of puntosVoltaje) {
+          if (p.t <= t) antes = p;
+          if (p.t >= t && !despues) despues = p;
+        }
+        if (antes && despues && antes !== despues) {
+          const ratio = (t - antes.t) / (despues.t - antes.t);
+          v = antes.v + (despues.v - antes.v) * ratio;
+        } else if (antes) v = antes.v;
+        else if (despues) v = despues.v;
+        // Pequeño ruido visual para que no parezca una línea perfectamente recta
+        v += Math.sin(i * 7.3) * 1.5 + Math.sin(i * 13.7) * 0.8;
+      }
+
+      const y = yPos(Math.max(0, Math.min(Y_MAX, v)));
+      d += (i === 0 ? 'M' : 'L') + x.toFixed(1) + ',' + y.toFixed(1) + ' ';
+    }
+    linea = `<path d="${d}" fill="none" stroke="#4ecca3" stroke-width="2" stroke-linejoin="round"/>`;
+
+    // Líneas de umbral (visual)
+    const y90 = yPos(90).toFixed(1);
+    const y125 = yPos(125).toFixed(1);
+    linea += `<line x1="${PL}" y1="${y90}" x2="${W-PR}" y2="${y90}" stroke="rgba(245,166,35,0.4)" stroke-width="1" stroke-dasharray="3,3"/>`;
+    linea += `<line x1="${PL}" y1="${y125}" x2="${W-PR}" y2="${y125}" stroke="rgba(233,69,96,0.4)" stroke-width="1" stroke-dasharray="3,3"/>`;
+  } else {
+    // Sin datos de voltaje: caer a ON/OFF
+    let d = '';
+    for (let i = 0; i <= 120; i++) {
+      const t = i / 120;
+      const x = PL + t * pw;
+      const enCorte = periodos.some(p => t >= p.ini && t <= p.fin);
+      const ruido = Math.sin(i * 6.1) * 0.04 + Math.sin(i * 14.3) * 0.02;
+      const y = enCorte ? PT + ph * 0.82 : PT + ph * 0.12 + ruido * ph;
+      d += (i === 0 ? 'M' : 'L') + x.toFixed(1) + ',' + y.toFixed(1) + ' ';
+    }
+    linea = `<path d="${d}" fill="none" stroke="#4ecca3" stroke-width="2" stroke-linejoin="round"/>`;
   }
 
-  // Etiquetas horas
+  // ── Etiquetas horas ────────────────────────────────────────
   let etiq = '';
   for (let h = 0; h <= 24; h += 6) {
     const x = PL + (h / 24) * pw;
     etiq += `<text x="${x.toFixed(1)}" y="${H-5}" font-size="8" fill="rgba(255,255,255,0.4)" text-anchor="middle">${String(h).padStart(2,'0')}h</text>`;
+  }
+
+  // ── Etiquetas Y ────────────────────────────────────────────
+  const labelYTop = tieneVoltaje ? '135V' : 'ON';
+  const labelYBot = tieneVoltaje ? '0V'   : 'OFF';
+
+  // Puntos de voltaje como círculos
+  let puntosSVG = '';
+  if (tieneVoltaje) {
+    for (const p of puntosVoltaje) {
+      const cx = PL + p.t * pw;
+      const cy = yPos(Math.max(0, Math.min(Y_MAX, p.v)));
+      puntosSVG += `<circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="2.5" fill="#4ecca3" opacity="0.8"/>`;
+    }
   }
 
   return `<div style="overflow-x:auto;">
@@ -1227,13 +1323,16 @@ function graficaDia(eventosDelDia) {
       <line x1="${PL}" y1="${PT}" x2="${PL}" y2="${PT+ph}" stroke="rgba(255,255,255,0.2)" stroke-width="1"/>
       <line x1="${PL}" y1="${PT+ph}" x2="${W-PR}" y2="${PT+ph}" stroke="rgba(255,255,255,0.2)" stroke-width="1"/>
       ${rects}
-      <path d="${d}" fill="none" stroke="#4ecca3" stroke-width="2" stroke-linejoin="round"/>
+      ${linea}
+      ${puntosSVG}
       ${etiq}
-      <text x="${PL-4}" y="${PT+6}" font-size="7" fill="rgba(255,255,255,0.4)" text-anchor="end">ON</text>
-      <text x="${PL-4}" y="${PT+ph}" font-size="7" fill="rgba(255,255,255,0.4)" text-anchor="end">OFF</text>
+      <text x="${PL-4}" y="${PT+6}" font-size="7" fill="rgba(255,255,255,0.4)" text-anchor="end">${labelYTop}</text>
+      <text x="${PL-4}" y="${PT+ph}" font-size="7" fill="rgba(255,255,255,0.4)" text-anchor="end">${labelYBot}</text>
     </svg>
   </div>
-  <div style="font-size:10px;color:rgba(255,255,255,0.35);text-align:right;margin-top:4px;">Estado basado en eventos registrados</div>`;
+  <div style="font-size:10px;color:rgba(255,255,255,0.35);text-align:right;margin-top:4px;">
+    ${tieneVoltaje ? '— 90V umbral bajón  — 125V umbral subida' : 'Estado basado en eventos registrados'}
+  </div>`;
 }
 
 function resumenDiario(eventosDelDia) {
