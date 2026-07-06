@@ -657,9 +657,18 @@ function itemHistorial(r) {
 }
 
 // ============================================================
-//  PANEL DE DETALLE (bottom sheet al tocar una fila)
+//  PANEL DE DETALLE — enruta según la vista activa
 // ============================================================
 function abrirDetalle(n) {
+  if (vistaActual === 'historial') {
+    abrirDetalleHistorial(n);
+  } else {
+    abrirDetalleSimple(n);
+  }
+}
+
+// ── PANEL SIMPLE (vista Inicio) — bottom sheet pequeño ──────
+function abrirDetalleSimple(n) {
   const r = registrosTodos.find(x => String(x.n) === String(n));
   if (!r) return;
 
@@ -667,10 +676,8 @@ function abrirDetalle(n) {
   const esFin    = esTipoFin(r.tipo);
   const fecha    = formatFechaCorta(r.hora);
   const horaIni  = formatHoraCorta(r.hora);
-  const horaFin  = esFin && r.notas && r.notas.length >= 16
-    ? formatHoraCorta(r.notas) : '';
-  const duracion = (r.durHMS && r.durHMS !== '-' && r.durHMS !== '0h 0m 0s')
-    ? r.durHMS : 'No registrada';
+  const horaFin  = esFin && r.notas && r.notas.length >= 10 ? formatHoraCorta(r.notas) : '';
+  const duracion = (r.durHMS && r.durHMS !== '-' && r.durHMS !== '0h 0m 0s') ? r.durHMS : 'No registrada';
   const etiqueta = esInicio ? 'Se fue la luz' : esFin ? 'Volvió la luz' : r.tipo;
   const color    = esInicio ? 'var(--accent)' : esFin ? 'var(--green)' : 'var(--muted)';
   const icono    = esInicio ? '🔌' : esFin ? '⚡' : '❓';
@@ -680,18 +687,13 @@ function abrirDetalle(n) {
   if (!overlay) {
     overlay = document.createElement('div');
     overlay.id = 'detalleOverlay';
-    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:999;display:flex;align-items:flex-end;';
     overlay.addEventListener('click', (e) => { if (e.target === overlay) cerrarDetalle(); });
     document.body.appendChild(overlay);
   }
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:999;display:flex;align-items:flex-end;';
 
   overlay.innerHTML = `
-    <div style="
-      background:var(--card);width:100%;
-      border-radius:20px 20px 0 0;
-      padding:24px 20px 40px;
-      animation:slideUp 0.3s cubic-bezier(0.22,1,0.36,1) both;
-    ">
+    <div style="background:var(--card);width:100%;border-radius:20px 20px 0 0;padding:24px 20px 40px;animation:slideUp 0.3s cubic-bezier(0.22,1,0.36,1) both;">
       <div style="width:40px;height:4px;background:var(--muted);border-radius:2px;margin:0 auto 20px;opacity:0.4"></div>
       <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px">
         <div class="h-icon ${clase}" style="width:44px;height:44px;font-size:20px">${icono}</div>
@@ -706,35 +708,330 @@ function abrirDetalle(n) {
           <div style="font-size:15px;font-weight:500">${fecha}</div>
         </div>
         <div style="background:var(--bg);border-radius:12px;padding:14px">
-          <div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin-bottom:6px">
-            ${esInicio ? 'Hora del corte' : 'Hora de inicio'}
-          </div>
+          <div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin-bottom:6px">${esInicio ? 'Hora del corte' : 'Hora de inicio'}</div>
           <div style="font-size:15px;font-weight:500">${horaIni}</div>
         </div>
-        ${horaFin ? `
-        <div style="background:var(--bg);border-radius:12px;padding:14px">
+        ${horaFin ? `<div style="background:var(--bg);border-radius:12px;padding:14px">
           <div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin-bottom:6px">Hora de retorno</div>
           <div style="font-size:15px;font-weight:500;color:var(--green)">${horaFin}</div>
         </div>` : '<div></div>'}
-        ${esFin ? `
-        <div style="background:var(--bg);border-radius:12px;padding:14px;grid-column:1/-1">
+        ${esFin ? `<div style="background:var(--bg);border-radius:12px;padding:14px;grid-column:1/-1">
           <div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin-bottom:6px">Duración del corte</div>
           <div style="font-size:22px;font-weight:300;color:var(--accent)">${duracion}</div>
         </div>` : ''}
       </div>
-      <button onclick="cerrarDetalle()" style="
-        width:100%;margin-top:20px;padding:14px;
-        background:var(--card2);color:var(--text);
-        border:none;border-radius:12px;font-size:15px;cursor:pointer;
-      ">Cerrar</button>
+      <button onclick="cerrarDetalle()" style="width:100%;margin-top:20px;padding:14px;background:var(--card2);color:var(--text);border:none;border-radius:12px;font-size:15px;cursor:pointer;">Cerrar</button>
     </div>
   `;
   overlay.style.display = 'flex';
 }
 
+// ── PANEL COMPLETO (vista Historial) — pantalla completa ─────
+function abrirDetalleHistorial(n) {
+  const r = registrosTodos.find(x => String(x.n) === String(n));
+  if (!r) return;
+
+  const esInicio = esTipoInicio(r.tipo);
+  const esFin    = esTipoFin(r.tipo);
+  const dInicio  = parsearFecha(r.hora);
+  const dFin     = (r.notas && r.notas.length >= 10) ? parsearFecha(r.notas) : null;
+
+  // Fecha del evento (para filtrar mismo día y título)
+  const fechaBase = dInicio
+    ? dInicio.getFullYear() + '-' + String(dInicio.getMonth()+1).padStart(2,'0') + '-' + String(dInicio.getDate()).padStart(2,'0')
+    : r.hora.substring(0, 10);
+
+  const MESES_LARGO = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+  const fechaTitulo = dInicio ? dInicio.getDate() + ' ' + MESES_LARGO[dInicio.getMonth()] : '--';
+
+  // Todos los eventos del mismo día en toda la lista cargada
+  const eventosDelDia = registrosTodos.filter(ev => {
+    const d = parsearFecha(ev.hora);
+    if (!d) return false;
+    const f = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+    return f === fechaBase;
+  });
+
+  const horaInicioStr = formatHoraCorta(r.hora);
+  const horaFinStr    = dFin ? formatHoraCorta(r.notas) : '--';
+  const durStr        = (r.durHMS && r.durHMS !== '-' && r.durHMS !== '0h 0m 0s') ? r.durHMS : '--';
+  const hora          = dInicio ? dInicio.getHours() : 12;
+  const etiqueta      = esInicio ? 'Se fue la luz' : esFin ? 'Volvió la luz' : r.tipo;
+  const icono         = esInicio ? '🔌' : esFin ? '⚡' : '❓';
+  const accentColor   = esInicio ? '#e94560' : '#4ecca3';
+
+  let overlay = document.getElementById('detalleOverlay');
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.id = 'detalleOverlay';
+    document.body.appendChild(overlay);
+  }
+  overlay.style.cssText = 'position:fixed;inset:0;z-index:999;overflow-y:auto;-webkit-overflow-scrolling:touch;';
+  document.body.style.overflow = 'hidden';
+
+  overlay.innerHTML = `
+    <div style="min-height:100vh;background:${cielo(hora)};position:relative;">
+
+      <!-- Fondo: edificios SVG -->
+      <div style="position:fixed;bottom:0;left:0;right:0;z-index:0;pointer-events:none;height:55vh;">
+        ${ciudadSVG(hora)}
+      </div>
+
+      <!-- Contenido scrollable -->
+      <div style="position:relative;z-index:1;padding-bottom:32px;">
+
+        <!-- Header -->
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:48px 20px 16px;background:linear-gradient(to bottom,rgba(0,0,0,0.45) 0%,transparent 100%);">
+          <div style="font-size:24px;font-weight:800;color:#fff;">${fechaTitulo}</div>
+          <div style="font-size:15px;color:rgba(255,255,255,0.75);font-weight:500;">Historial de Evento</div>
+          <button onclick="cerrarDetalle()" style="background:rgba(255,255,255,0.2);backdrop-filter:blur(8px);border:none;border-radius:20px;padding:6px 14px;color:#fff;font-size:13px;cursor:pointer;">✕</button>
+        </div>
+
+        <!-- Tarjeta principal -->
+        <div style="margin:0 16px 16px;background:rgba(255,255,255,0.13);backdrop-filter:blur(14px);border-radius:18px;padding:18px;border:1px solid rgba(255,255,255,0.22);">
+          <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
+            <div style="width:44px;height:44px;border-radius:14px;background:${accentColor}33;display:flex;align-items:center;justify-content:center;font-size:22px;">${icono}</div>
+            <div>
+              <div style="font-size:17px;font-weight:700;color:#fff;">${etiqueta}</div>
+              <div style="font-size:12px;color:rgba(255,255,255,0.55);">Evento #${r.n}</div>
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;text-align:center;">
+            <div style="background:rgba(0,0,0,0.2);border-radius:10px;padding:10px 6px;">
+              <div style="font-size:9px;letter-spacing:1px;color:rgba(255,255,255,0.5);margin-bottom:4px;">${esInicio ? 'HORA CORTE' : 'CORTE INICIAL'}</div>
+              <div style="font-size:15px;font-weight:700;color:#fff;">${horaInicioStr}</div>
+            </div>
+            <div style="background:rgba(0,0,0,0.2);border-radius:10px;padding:10px 6px;">
+              <div style="font-size:9px;letter-spacing:1px;color:rgba(255,255,255,0.5);margin-bottom:4px;">HORA DE RETORNO</div>
+              <div style="font-size:15px;font-weight:700;color:#fff;">${horaFinStr}</div>
+            </div>
+            <div style="background:rgba(0,0,0,0.2);border-radius:10px;padding:10px 6px;">
+              <div style="font-size:9px;letter-spacing:1px;color:rgba(255,255,255,0.5);margin-bottom:4px;">DURACIÓN</div>
+              <div style="font-size:15px;font-weight:700;color:#fff;">${durStr}</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Timeline -->
+        <div style="margin:0 16px 16px;">
+          <div style="font-size:10px;letter-spacing:1.5px;color:rgba(255,255,255,0.5);margin-bottom:8px;">LÍNEA DE TIEMPO</div>
+          <div style="background:rgba(0,0,0,0.28);backdrop-filter:blur(10px);border-radius:14px;overflow:hidden;border:1px solid rgba(255,255,255,0.1);">
+            ${timelineHTML(eventosDelDia)}
+          </div>
+        </div>
+
+        <!-- Gráfica -->
+        <div style="margin:0 16px 16px;">
+          <div style="font-size:10px;letter-spacing:1.5px;color:rgba(255,255,255,0.5);margin-bottom:8px;">ESTADO ELÉCTRICO DEL DÍA</div>
+          <div style="background:rgba(255,255,255,0.1);backdrop-filter:blur(10px);border-radius:14px;padding:16px;border:1px solid rgba(255,255,255,0.1);">
+            ${graficaDia(eventosDelDia)}
+          </div>
+        </div>
+
+        <!-- Resumen -->
+        <div style="margin:0 16px 16px;background:rgba(0,0,0,0.28);backdrop-filter:blur(10px);border-radius:14px;padding:16px;border:1px solid rgba(255,255,255,0.1);">
+          <div style="font-size:10px;letter-spacing:1.5px;color:rgba(255,255,255,0.5);margin-bottom:8px;">RESUMEN DIARIO:</div>
+          <div style="font-size:13px;color:rgba(255,255,255,0.9);line-height:1.7;">${resumenDiario(eventosDelDia)}</div>
+        </div>
+
+        <!-- Botón cerrar -->
+        <div style="margin:0 16px;">
+          <button onclick="cerrarDetalle()" style="width:100%;padding:16px;background:rgba(255,255,255,0.15);backdrop-filter:blur(8px);color:#fff;border:1px solid rgba(255,255,255,0.2);border-radius:14px;font-size:16px;cursor:pointer;font-weight:500;">Cerrar</button>
+        </div>
+
+      </div>
+    </div>
+  `;
+}
+
 function cerrarDetalle() {
   const overlay = document.getElementById('detalleOverlay');
   if (overlay) overlay.style.display = 'none';
+  document.body.style.overflow = '';
+}
+
+// ── HELPERS DEL PANEL HISTORIAL ──────────────────────────────
+
+function cielo(hora) {
+  if (hora >= 5  && hora < 8)  return 'linear-gradient(180deg,#f4a261 0%,#e9c46a 40%,#90b4ce 100%)';
+  if (hora >= 8  && hora < 17) return 'linear-gradient(180deg,#1e6091 0%,#2980b9 40%,#5dade2 100%)';
+  if (hora >= 17 && hora < 20) return 'linear-gradient(180deg,#922b21 0%,#c0392b 25%,#e67e22 55%,#2c3e50 100%)';
+  return 'linear-gradient(180deg,#0a0a2e 0%,#12123e 45%,#1c2a4a 100%)';
+}
+
+function ciudadSVG(hora) {
+  const noche = !(hora >= 8 && hora < 17);
+  const bld   = noche ? '#0c1a28' : '#1a2e40';
+  const win   = noche ? 'rgba(255,240,160,0.75)' : 'rgba(255,255,200,0.2)';
+  const op    = noche ? 0.9 : 0.5;
+  return `<svg width="100%" height="100%" viewBox="0 0 400 300" preserveAspectRatio="xMidYMax meet" xmlns="http://www.w3.org/2000/svg">
+    <g opacity="${op}" fill="${bld}">
+      <rect x="0"   y="120" width="45"  height="180"/>
+      <rect x="50"  y="90"  width="35"  height="210"/>
+      <rect x="90"  y="140" width="55"  height="160"/>
+      <rect x="150" y="80"  width="40"  height="220"/>
+      <rect x="195" y="110" width="50"  height="190"/>
+      <rect x="250" y="70"  width="60"  height="230"/>
+      <rect x="315" y="100" width="40"  height="200"/>
+      <rect x="360" y="130" width="40"  height="170"/>
+    </g>
+    <g fill="${win}">
+      <rect x="5"   y="130" width="8" height="5" rx="1"/><rect x="18"  y="130" width="8" height="5" rx="1"/>
+      <rect x="5"   y="143" width="8" height="5" rx="1"/><rect x="31"  y="130" width="8" height="5" rx="1"/>
+      <rect x="55"  y="100" width="7" height="5" rx="1"/><rect x="66"  y="100" width="7" height="5" rx="1"/>
+      <rect x="55"  y="112" width="7" height="5" rx="1"/><rect x="66"  y="112" width="7" height="5" rx="1"/>
+      <rect x="95"  y="150" width="9" height="6" rx="1"/><rect x="110" y="150" width="9" height="6" rx="1"/>
+      <rect x="125" y="150" width="9" height="6" rx="1"/><rect x="95"  y="163" width="9" height="6" rx="1"/>
+      <rect x="155" y="90"  width="8" height="5" rx="1"/><rect x="168" y="90"  width="8" height="5" rx="1"/>
+      <rect x="155" y="102" width="8" height="5" rx="1"/><rect x="168" y="102" width="8" height="5" rx="1"/>
+      <rect x="180" y="90"  width="8" height="5" rx="1"/>
+      <rect x="200" y="118" width="9" height="6" rx="1"/><rect x="215" y="118" width="9" height="6" rx="1"/>
+      <rect x="230" y="118" width="9" height="6" rx="1"/><rect x="200" y="131" width="9" height="6" rx="1"/>
+      <rect x="230" y="131" width="9" height="6" rx="1"/>
+      <rect x="255" y="80"  width="10" height="6" rx="1"/><rect x="270" y="80"  width="10" height="6" rx="1"/>
+      <rect x="285" y="80"  width="10" height="6" rx="1"/><rect x="300" y="80"  width="10" height="6" rx="1"/>
+      <rect x="255" y="93"  width="10" height="6" rx="1"/><rect x="300" y="93"  width="10" height="6" rx="1"/>
+      <rect x="320" y="108" width="8"  height="5" rx="1"/><rect x="333" y="108" width="8"  height="5" rx="1"/>
+      <rect x="320" y="120" width="8"  height="5" rx="1"/><rect x="346" y="108" width="8"  height="5" rx="1"/>
+      <rect x="365" y="138" width="8"  height="5" rx="1"/><rect x="378" y="138" width="8"  height="5" rx="1"/>
+      <rect x="365" y="150" width="8"  height="5" rx="1"/>
+    </g>
+  </svg>`;
+}
+
+function timelineHTML(eventosDelDia) {
+  // Construir mapa hora → evento (para CORTE, marcar todo el rango inicio-fin)
+  const mapaHoras = {};
+  for (const ev of eventosDelDia) {
+    const d = parsearFecha(ev.hora);
+    if (!d) continue;
+    const hIni = d.getHours();
+    if (esTipoFin(ev.tipo) && ev.notas && ev.notas.length >= 10) {
+      const dF = parsearFecha(ev.notas);
+      const hFin = dF ? dF.getHours() : hIni;
+      for (let h = hIni; h <= hFin; h++) {
+        if (!mapaHoras[h]) mapaHoras[h] = { tipo: 'corte', dur: h === hFin ? ev.durHMS : '' };
+      }
+    } else if (esTipoInicio(ev.tipo)) {
+      if (!mapaHoras[hIni]) mapaHoras[hIni] = { tipo: 'alerta', dur: '' };
+    }
+  }
+
+  let html = '';
+  for (let h = 0; h < 24; h++) {
+    const t1 = String(h).padStart(2,'0') + ':00';
+    const t2 = String((h+1) % 24).padStart(2,'0') + ':00';
+    const ev = mapaHoras[h];
+    if (!ev) {
+      html += `<div style="display:flex;align-items:center;padding:7px 14px;border-bottom:1px solid rgba(255,255,255,0.05);">
+        <span style="font-size:12px;color:rgba(255,255,255,0.35);width:110px;flex-shrink:0;">${t1} - ${t2}</span>
+      </div>`;
+    } else {
+      const bg  = ev.tipo === 'corte' ? 'rgba(233,69,96,0.22)' : 'rgba(230,126,34,0.22)';
+      const cbg = ev.tipo === 'corte' ? '#e94560' : '#e67e22';
+      const lbl = ev.tipo === 'corte' ? 'Corte Detectado' : 'Alerta';
+      html += `<div style="display:flex;align-items:center;padding:7px 14px;border-bottom:1px solid rgba(255,255,255,0.05);background:${bg};">
+        <span style="font-size:12px;color:rgba(255,255,255,0.5);width:110px;flex-shrink:0;">${t1} - ${t2}</span>
+        <div style="flex:1;background:${cbg};border-radius:8px;padding:6px 10px;display:flex;justify-content:space-between;align-items:center;">
+          <span style="font-size:12px;font-weight:600;color:#fff;">${lbl}</span>
+          ${ev.dur && ev.dur !== '-' ? `<span style="font-size:11px;color:rgba(255,255,255,0.8);">${ev.dur}</span>` : ''}
+        </div>
+      </div>`;
+    }
+  }
+  return html;
+}
+
+function graficaDia(eventosDelDia) {
+  const W = 320, H = 90, PL = 32, PR = 8, PT = 8, PB = 22;
+  const pw = W - PL - PR, ph = H - PT - PB;
+
+  // Periodos de corte como fracción del día
+  const periodos = [];
+  for (const ev of eventosDelDia) {
+    if (esTipoFin(ev.tipo) && ev.notas && ev.notas.length >= 10) {
+      const dS = parsearFecha(ev.hora);
+      const dE = parsearFecha(ev.notas);
+      if (dS && dE) {
+        periodos.push({
+          ini: (dS.getHours() * 60 + dS.getMinutes()) / 1440,
+          fin: (dE.getHours() * 60 + dE.getMinutes()) / 1440
+        });
+      }
+    } else if (esTipoInicio(ev.tipo)) {
+      const dS = parsearFecha(ev.hora);
+      if (dS) {
+        const t = (dS.getHours() * 60 + dS.getMinutes()) / 1440;
+        periodos.push({ ini: t, fin: Math.min(t + 0.03, 1) });
+      }
+    }
+  }
+
+  // Rectángulos de corte
+  let rects = '';
+  for (const p of periodos) {
+    const x = PL + p.ini * pw;
+    const w = Math.max((p.fin - p.ini) * pw, 2);
+    rects += `<rect x="${x.toFixed(1)}" y="${PT}" width="${w.toFixed(1)}" height="${ph}" fill="rgba(233,69,96,0.25)" rx="2"/>`;
+  }
+
+  // Línea de estado (1=on, 0=off)
+  let d = '';
+  for (let i = 0; i <= 120; i++) {
+    const t = i / 120;
+    const x = PL + t * pw;
+    const enCorte = periodos.some(p => t >= p.ini && t <= p.fin);
+    const ruido = Math.sin(i * 6.1) * 0.04 + Math.sin(i * 14.3) * 0.02;
+    const y = enCorte ? PT + ph * 0.82 : PT + ph * 0.12 + ruido * ph;
+    d += (i === 0 ? 'M' : 'L') + x.toFixed(1) + ',' + y.toFixed(1) + ' ';
+  }
+
+  // Etiquetas horas
+  let etiq = '';
+  for (let h = 0; h <= 24; h += 6) {
+    const x = PL + (h / 24) * pw;
+    etiq += `<text x="${x.toFixed(1)}" y="${H-5}" font-size="8" fill="rgba(255,255,255,0.4)" text-anchor="middle">${String(h).padStart(2,'0')}h</text>`;
+  }
+
+  return `<div style="overflow-x:auto;">
+    <svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">
+      <line x1="${PL}" y1="${PT}" x2="${PL}" y2="${PT+ph}" stroke="rgba(255,255,255,0.2)" stroke-width="1"/>
+      <line x1="${PL}" y1="${PT+ph}" x2="${W-PR}" y2="${PT+ph}" stroke="rgba(255,255,255,0.2)" stroke-width="1"/>
+      ${rects}
+      <path d="${d}" fill="none" stroke="#4ecca3" stroke-width="2" stroke-linejoin="round"/>
+      ${etiq}
+      <text x="${PL-4}" y="${PT+6}" font-size="7" fill="rgba(255,255,255,0.4)" text-anchor="end">ON</text>
+      <text x="${PL-4}" y="${PT+ph}" font-size="7" fill="rgba(255,255,255,0.4)" text-anchor="end">OFF</text>
+    </svg>
+  </div>
+  <div style="font-size:10px;color:rgba(255,255,255,0.35);text-align:right;margin-top:4px;">Estado basado en eventos registrados</div>`;
+}
+
+function resumenDiario(eventosDelDia) {
+  const cortes  = eventosDelDia.filter(e => esTipoFin(e.tipo));
+  const alertas = eventosDelDia.filter(e => esTipoInicio(e.tipo));
+  const n       = alertas.length;
+
+  if (n === 0) return 'Sin cortes detectados este día. Comportamiento eléctrico estable durante toda la jornada.';
+
+  let txt = n === 1
+    ? 'Se registró 1 corte eléctrico durante este día. '
+    : `Se registraron ${n} cortes eléctricos durante este día. `;
+
+  if (cortes.length > 0) {
+    const masLargo = cortes.reduce((m, e) => e.durSeg > m.durSeg ? e : m, cortes[0]);
+    if (masLargo.durSeg > 0) {
+      txt += `El corte más prolongado ocurrió a las ${formatHoraCorta(masLargo.hora)} con una duración de ${masLargo.durHMS}. `;
+    }
+    const total = cortes.reduce((s, e) => s + (e.durSeg || 0), 0);
+    if (total > 0) {
+      const h = Math.floor(total / 3600), m = Math.floor((total % 3600) / 60);
+      txt += `Tiempo total sin electricidad: ${h > 0 ? h + 'h ' : ''}${m}m.`;
+    }
+  } else if (n > 0) {
+    txt += 'Los cortes no tienen duración registrada (posiblemente en curso al momento del último reporte).';
+  }
+  return txt;
 }
 
 function renderPronostico(r) {
