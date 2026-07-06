@@ -513,16 +513,16 @@ function renderInicio() {
 }
 
 function renderHistorial() {
-  const grid   = document.getElementById('mainGrid');
-  const cortes = buildCorteRows(registrosTodos);
-  const lista  = cortes.map(r => itemCorte(r)).join('');
+  const grid     = document.getElementById('mainGrid');
+  const cortes   = buildCorteRows(registrosTodos);
+  const dateRows = buildDateRows(cortes);
+  const lista    = dateRows.map(d => itemFecha(d)).join('');
   const totalEventos = datos ? (datos.total || 0) : 0;
-  // Estimamos cortes como la mitad de los eventos (ALERTA+CORTE por cada corte)
-  const totalCortes = Math.ceil(totalEventos / 2);
+  const totalCortes  = Math.ceil(totalEventos / 2);
 
   grid.innerHTML = `
     <div class="card full">
-      <div class="card-label">${totalCortes} cortes registrados · mostrando ${cortes.length}</div>
+      <div class="card-label">${totalCortes} cortes registrados · ${dateRows.length} días con cortes</div>
       <div class="historial-list">
         ${lista || '<div style="color:var(--muted);padding:16px 0">Sin registros aún</div>'}
       </div>
@@ -533,7 +533,7 @@ function renderHistorial() {
           border:none;border-radius:12px;font-size:14px;cursor:pointer;
         ">Cargar más eventos</button>
       ` : `
-        ${cortes.length > 0 ? '<div style="text-align:center;padding:16px 0;font-size:12px;color:var(--muted)">— Todos los registros cargados —</div>' : ''}
+        ${dateRows.length > 0 ? '<div style="text-align:center;padding:16px 0;font-size:12px;color:var(--muted)">— Todos los registros cargados —</div>' : ''}
       `}
     </div>
   `;
@@ -718,7 +718,7 @@ function itemCorte(r) {
     <div class="historial-item" onclick="abrirDetalle(${r.n})">
       <div class="h-icon inicio">⚡</div>
       <div class="h-body">
-        <div class="h-tipo" style="color:${enCurso ? 'var(--yellow)' : 'var(--accent)'}">
+        <div class="h-tipo" style="color:${enCurso ? 'var(--yellow)' : 'var(--green)'}">
           ${enCurso ? 'Corte en curso' : 'Corte de luz'}
         </div>
         <div class="h-hora">${fecha}</div>
@@ -730,6 +730,173 @@ function itemCorte(r) {
     </div>
   `;
 }
+// ============================================================
+//  AGRUPACIÓN POR FECHA
+// ============================================================
+
+/** Agrupa los cortes unificados por fecha (un elemento por día). */
+function buildDateRows(cortes) {
+  const mapaFechas = new Map();
+  for (const r of cortes) {
+    const d = parsearFecha(r.hora);
+    if (!d) continue;
+    const key = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+    if (!mapaFechas.has(key)) {
+      mapaFechas.set(key, { fechaKey: key, primeraHora: r.hora, cortes: [], totalSeg: 0 });
+    }
+    const entry = mapaFechas.get(key);
+    entry.cortes.push(r);
+    entry.totalSeg += (parseInt(r.durSeg) || 0);
+  }
+  return Array.from(mapaFechas.values());
+}
+
+/** Renderiza una fila de fecha (una por día). */
+function itemFecha(fechaData) {
+  const fecha = formatFechaCorta(fechaData.primeraHora);
+  const count = fechaData.cortes.length;
+  const h = Math.floor(fechaData.totalSeg / 3600);
+  const m = Math.floor((fechaData.totalSeg % 3600) / 60);
+  const s = fechaData.totalSeg % 60;
+  const totalStr = fechaData.totalSeg > 0 ? h + 'h ' + m + 'm ' + s + 's' : '--';
+
+  return `
+    <div class="historial-item" onclick="abrirDetalleFecha('${fechaData.fechaKey}')">
+      <div class="h-icon inicio">⚡</div>
+      <div class="h-body">
+        <div class="h-tipo" style="color:var(--green)">${fecha}</div>
+        <div class="h-hora">${count} ${count === 1 ? 'corte registrado' : 'cortes registrados'}</div>
+      </div>
+      <div class="h-right">
+        <div class="h-dur">${totalStr}</div>
+        <div class="h-hora-right">sin luz</div>
+      </div>
+    </div>
+  `;
+}
+
+/** Abre el panel completo de un día mostrando todos los cortes. */
+function abrirDetalleFecha(fechaKey) {
+  const todosCortes       = buildCorteRows(registrosTodos);
+  const cortesDelDia      = todosCortes.filter(r => {
+    const d   = parsearFecha(r.hora);
+    if (!d) return false;
+    const key = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+    return key === fechaKey;
+  });
+  const todosEventosDelDia = registrosTodos.filter(r => {
+    const d   = parsearFecha(r.hora);
+    if (!d) return false;
+    const key = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+    return key === fechaKey;
+  });
+
+  if (cortesDelDia.length === 0) return;
+
+  const dRef = parsearFecha(cortesDelDia[0].hora);
+  const MESES_LARGO = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+  const fechaTitulo = dRef ? dRef.getDate() + ' ' + MESES_LARGO[dRef.getMonth()] : '--';
+  const hora        = dRef ? dRef.getHours() : 12;
+
+  const totalSeg = cortesDelDia.reduce((s, r) => s + (parseInt(r.durSeg) || 0), 0);
+  const th = Math.floor(totalSeg / 3600), tm = Math.floor((totalSeg % 3600) / 60);
+  const totalStr = totalSeg > 0 ? th + 'h ' + tm + 'm' : '--';
+
+  const listaCortes = cortesDelDia.map(r => {
+    const horaIni = formatHoraCorta(r.hora);
+    const horaFin = esTipoFin(r.tipo) && r.notas && r.notas.length >= 10 ? formatHoraCorta(r.notas) : '--';
+    const dur     = (r.durHMS && r.durHMS !== '-' && r.durHMS !== '0h 0m 0s') ? r.durHMS : '--';
+    return `
+      <div onclick="abrirDetalleHistorial(${r.n})" style="
+        display:flex;justify-content:space-between;align-items:center;
+        background:rgba(0,0,0,0.2);border-radius:10px;padding:10px 14px;
+        margin-bottom:8px;cursor:pointer;border:1px solid rgba(255,255,255,0.1);
+      ">
+        <div>
+          <div style="font-size:13px;font-weight:600;color:#fff;">⚡ Corte de luz</div>
+          <div style="font-size:11px;color:rgba(255,255,255,0.5);margin-top:2px;">
+            ${horaIni} → <span style="color:#4ecca3;">${horaFin}</span>
+          </div>
+        </div>
+        <div style="text-align:right;">
+          <div style="font-size:13px;color:rgba(255,255,255,0.8);">${dur}</div>
+          <div style="font-size:11px;color:rgba(255,255,255,0.35);">Evento #${r.n}</div>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  let overlay = document.getElementById('detalleOverlay');
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.id = 'detalleOverlay';
+    document.body.appendChild(overlay);
+  }
+  overlay.style.cssText = 'position:fixed;inset:0;z-index:999;overflow-y:auto;-webkit-overflow-scrolling:touch;';
+  document.body.style.overflow = 'hidden';
+
+  overlay.innerHTML = `
+    <div style="min-height:100vh;background:${cielo(hora)};position:relative;">
+      <div style="position:fixed;bottom:0;left:0;right:0;z-index:0;pointer-events:none;height:55vh;">${ciudadSVG(hora)}</div>
+      <div style="position:relative;z-index:1;padding-bottom:32px;">
+
+        <!-- Header -->
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:48px 20px 16px;background:linear-gradient(to bottom,rgba(0,0,0,0.45) 0%,transparent 100%);">
+          <div style="font-size:24px;font-weight:800;color:#fff;">${fechaTitulo}</div>
+          <div style="font-size:15px;color:rgba(255,255,255,0.75);font-weight:500;">Historial del Día</div>
+          <button onclick="cerrarDetalle()" style="background:rgba(255,255,255,0.2);backdrop-filter:blur(8px);border:none;border-radius:20px;padding:6px 14px;color:#fff;font-size:13px;cursor:pointer;">✕</button>
+        </div>
+
+        <!-- Resumen del día -->
+        <div style="margin:0 16px 16px;background:rgba(255,255,255,0.13);backdrop-filter:blur(14px);border-radius:18px;padding:18px;border:1px solid rgba(255,255,255,0.22);">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;text-align:center;">
+            <div style="background:rgba(0,0,0,0.2);border-radius:10px;padding:12px 6px;">
+              <div style="font-size:9px;letter-spacing:1px;color:rgba(255,255,255,0.5);margin-bottom:6px;">CORTES</div>
+              <div style="font-size:32px;font-weight:800;color:#fff;">${cortesDelDia.length}</div>
+            </div>
+            <div style="background:rgba(0,0,0,0.2);border-radius:10px;padding:12px 6px;">
+              <div style="font-size:9px;letter-spacing:1px;color:rgba(255,255,255,0.5);margin-bottom:6px;">TIEMPO SIN LUZ</div>
+              <div style="font-size:22px;font-weight:700;color:#e94560;">${totalStr}</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Lista de cortes del día -->
+        <div style="margin:0 16px 16px;">
+          <div style="font-size:10px;letter-spacing:1.5px;color:rgba(255,255,255,0.5);margin-bottom:8px;">CORTES DEL DÍA</div>
+          ${listaCortes}
+        </div>
+
+        <!-- Línea de tiempo -->
+        <div style="margin:0 16px 16px;">
+          <div style="font-size:10px;letter-spacing:1.5px;color:rgba(255,255,255,0.5);margin-bottom:8px;">LÍNEA DE TIEMPO</div>
+          <div style="background:rgba(0,0,0,0.28);backdrop-filter:blur(10px);border-radius:14px;overflow:hidden;border:1px solid rgba(255,255,255,0.1);">
+            ${timelineHTML(todosEventosDelDia)}
+          </div>
+        </div>
+
+        <!-- Gráfica -->
+        <div style="margin:0 16px 16px;">
+          <div style="font-size:10px;letter-spacing:1.5px;color:rgba(255,255,255,0.5);margin-bottom:8px;">ESTADO ELÉCTRICO DEL DÍA</div>
+          <div style="background:rgba(255,255,255,0.1);backdrop-filter:blur(10px);border-radius:14px;padding:16px;border:1px solid rgba(255,255,255,0.1);">
+            ${graficaDia(todosEventosDelDia)}
+          </div>
+        </div>
+
+        <!-- Resumen textual -->
+        <div style="margin:0 16px 16px;background:rgba(0,0,0,0.28);backdrop-filter:blur(10px);border-radius:14px;padding:16px;border:1px solid rgba(255,255,255,0.1);">
+          <div style="font-size:10px;letter-spacing:1.5px;color:rgba(255,255,255,0.5);margin-bottom:8px;">RESUMEN DIARIO:</div>
+          <div style="font-size:13px;color:rgba(255,255,255,0.9);line-height:1.7;">${resumenDiario(todosEventosDelDia)}</div>
+        </div>
+
+        <div style="margin:0 16px;">
+          <button onclick="cerrarDetalle()" style="width:100%;padding:16px;background:rgba(255,255,255,0.15);backdrop-filter:blur(8px);color:#fff;border:1px solid rgba(255,255,255,0.2);border-radius:14px;font-size:16px;cursor:pointer;font-weight:500;">Cerrar</button>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
 function abrirDetalle(n) {
   if (vistaActual === 'historial') {
     abrirDetalleHistorial(n);
@@ -874,7 +1041,7 @@ function abrirDetalleHistorial(n) {
             </div>
             <div style="background:rgba(0,0,0,0.2);border-radius:10px;padding:10px 6px;">
               <div style="font-size:9px;letter-spacing:1px;color:rgba(255,255,255,0.5);margin-bottom:4px;">HORA DE RETORNO</div>
-              <div style="font-size:15px;font-weight:700;color:#fff;">${horaFinStr}</div>
+              <div style="font-size:15px;font-weight:700;color:${horaFinStr !== '--' ? '#4ecca3' : '#fff'};">${horaFinStr}</div>
             </div>
             <div style="background:rgba(0,0,0,0.2);border-radius:10px;padding:10px 6px;">
               <div style="font-size:9px;letter-spacing:1px;color:rgba(255,255,255,0.5);margin-bottom:4px;">DURACIÓN</div>
