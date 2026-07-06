@@ -768,8 +768,7 @@ function itemFecha(fechaData) {
         <div class="h-hora">${count} ${count === 1 ? 'corte registrado' : 'cortes registrados'}</div>
       </div>
       <div class="h-right">
-        <div class="h-dur">${totalStr}</div>
-        <div class="h-hora-right">sin luz</div>
+        <div class="h-dur" style="color:var(--accent)">${totalStr}</div>
       </div>
     </div>
   `;
@@ -865,14 +864,6 @@ function abrirDetalleFecha(fechaKey) {
         <div style="margin:0 16px 16px;">
           <div style="font-size:10px;letter-spacing:1.5px;color:rgba(255,255,255,0.5);margin-bottom:8px;">CORTES DEL DÍA</div>
           ${listaCortes}
-        </div>
-
-        <!-- Línea de tiempo -->
-        <div style="margin:0 16px 16px;">
-          <div style="font-size:10px;letter-spacing:1.5px;color:rgba(255,255,255,0.5);margin-bottom:8px;">LÍNEA DE TIEMPO</div>
-          <div style="background:rgba(0,0,0,0.28);backdrop-filter:blur(10px);border-radius:14px;overflow:hidden;border:1px solid rgba(255,255,255,0.1);">
-            ${timelineHTML(todosEventosDelDia)}
-          </div>
         </div>
 
         <!-- Gráfica -->
