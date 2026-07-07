@@ -1363,6 +1363,7 @@ function graficaDia(eventosDelDia) {
     <span style="color:rgba(233,69,96,0.8)">▬</span> 125V subida &nbsp;
     ${tieneVoltaje ? '· datos reales' : '· voltaje nominal 110V'}
   </div>`;
+}
 
 function resumenDiario(eventosDelDia) {
   const cortes  = eventosDelDia.filter(e => esTipoFin(e.tipo));
