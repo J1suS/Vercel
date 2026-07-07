@@ -1276,14 +1276,14 @@ function graficaDia(eventosDelDia) {
         continue;
       }
 
-      // Al salir del corte: subida vertical desde 0V al voltaje actual
+      // Al salir del corte: saltar directamente al voltaje sin dibujar
+      // la subida vertical (el rectángulo rojo ya indica que el corte terminó)
       if (!enCorte && enCorteAnterior) {
         let vDespues = 110;
         const pDespues = puntosVoltaje.filter(p => p.t >= t);
         if (pDespues.length > 0) vDespues = pDespues[0].v;
-        // Subida vertical desde 0V
-        d += 'L' + x.toFixed(1) + ',' + yPos(0).toFixed(1) + ' ';
-        d += 'L' + x.toFixed(1) + ',' + yPos(Math.min(Y_MAX, vDespues)).toFixed(1) + ' ';
+        // M = mover sin dibujar → evita el segmento verde vertical
+        d += 'M' + x.toFixed(1) + ',' + yPos(Math.min(Y_MAX, vDespues)).toFixed(1) + ' ';
         enCorteAnterior = false;
       }
 
