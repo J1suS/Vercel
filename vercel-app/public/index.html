@@ -790,6 +790,24 @@ function abrirDetalleFecha(fechaKey) {
     return key === fechaKey;
   });
 
+  // Si el día visto coincide con el heartbeat más reciente, inyectarlo como
+  // punto de voltaje para que la gráfica muestre datos reales.
+  // El heartbeat viene en datos.heartbeat y NO está en el Sheet.
+  if (datos && datos.heartbeat && datos.heartbeat.hora && datos.heartbeat.voltaje) {
+    const hbD = parsearFecha(datos.heartbeat.hora);
+    if (hbD) {
+      const hbKey = hbD.getFullYear() + '-' + String(hbD.getMonth()+1).padStart(2,'0') + '-' + String(hbD.getDate()).padStart(2,'0');
+      if (hbKey === fechaKey) {
+        todosEventosDelDia.push({
+          n: -1, tipo: 'HEARTBEAT',
+          hora: datos.heartbeat.hora,
+          notas: datos.heartbeat.voltaje,
+          durSeg: 0, durHMS: '-'
+        });
+      }
+    }
+  }
+
   if (cortesDelDia.length === 0) return;
 
   const dRef = parsearFecha(cortesDelDia[0].hora);
