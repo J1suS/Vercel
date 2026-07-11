@@ -1389,9 +1389,25 @@ function renderPronostico(r) {
 }
 
 function calcularBateria() {
-  const pct   = 75; // placeholder hasta que el Arduino reporte voltaje real
+  // Leer porcentaje real del último heartbeat del Arduino
+  // Formato: datos.heartbeat.bateria = "87%"
+  let pct = null;
+  if (datos && datos.heartbeat && datos.heartbeat.bateria) {
+    const match = datos.heartbeat.bateria.match(/(\d+)/);
+    if (match) pct = parseInt(match[1]);
+  }
+
+  if (pct === null) {
+    // Sin datos reales aún
+    return { pct: 0, color: 'var(--muted)', texto: 'Sin datos de batería' };
+  }
+
+  pct = Math.max(0, Math.min(100, pct));
   const color = pct > 50 ? 'var(--green)' : pct > 20 ? 'var(--yellow)' : 'var(--accent)';
-  const texto = pct > 50 ? 'Batería en buen estado' : pct > 20 ? 'Batería baja' : 'Batería crítica';
+  const texto = pct > 80 ? 'Batería en buen estado'
+              : pct > 50 ? 'Batería media-alta'
+              : pct > 20 ? 'Batería baja'
+              : 'Batería crítica';
   return { pct, color, texto };
 }
 
