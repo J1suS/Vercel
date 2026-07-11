@@ -478,9 +478,9 @@ function renderInicio() {
       <div class="card-label">Batería del dispositivo</div>
       <div class="battery-wrap">
         <div class="battery-icon">
-          <div class="battery-fill" id="batFill" style="width:${bat.pct}%;background:${bat.color}"></div>
+          <div class="battery-fill" id="batFill" style="width:${bat.pct !== null ? bat.pct : 0}%;background:${bat.color}"></div>
         </div>
-        <div class="battery-pct">${bat.pct}%</div>
+        <div class="battery-pct">${bat.pct !== null ? bat.pct + '%' : '--'}</div>
       </div>
       <div class="card-sub">${bat.texto}</div>
     </div>
@@ -1398,8 +1398,8 @@ function calcularBateria() {
   }
 
   if (pct === null) {
-    // Sin datos reales aún
-    return { pct: 0, color: 'var(--muted)', texto: 'Sin datos de batería' };
+    // Sin datos reales aún — mostrar -- en lugar de 0% para no confundir
+    return { pct: null, color: 'var(--muted)', texto: 'Sin datos de batería' };
   }
 
   pct = Math.max(0, Math.min(100, pct));
