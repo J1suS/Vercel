@@ -1393,8 +1393,12 @@ function calcularBateria() {
   // Formato: datos.heartbeat.bateria = "87%"
   let pct = null;
   if (datos && datos.heartbeat && datos.heartbeat.bateria) {
-    const match = datos.heartbeat.bateria.match(/(\d+)/);
-    if (match) pct = parseInt(match[1]);
+    // El Arduino envía solo el número (sin %) para evitar URIError
+    const match = datos.heartbeat.bateria.match(/(-?\d+)/);
+    if (match) {
+      const n = parseInt(match[1]);
+      if (n >= 0) pct = n;  // ignorar -1 (sin datos)
+    }
   }
 
   if (pct === null) {
