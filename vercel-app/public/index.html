@@ -1389,30 +1389,38 @@ function renderPronostico(r) {
 }
 
 function calcularBateria() {
-  // Leer porcentaje real del último heartbeat del Arduino
-  // Formato: datos.heartbeat.bateria = "87%"
   let pct = null;
+  let cargando = false;
+
   if (datos && datos.heartbeat && datos.heartbeat.bateria) {
-    // El Arduino envía solo el número (sin %) para evitar URIError
-    const match = datos.heartbeat.bateria.match(/(-?\d+)/);
-    if (match) {
-      const n = parseInt(match[1]);
-      if (n >= 0) pct = n;  // ignorar -1 (sin datos)
+    const raw = datos.heartbeat.bateria;
+    if (raw === 'CHG') {
+      cargando = true;
+      pct = 100;  // mostrar llena mientras carga
+    } else {
+      const match = raw.match(/(-?\d+)/);
+      if (match) {
+        const n = parseInt(match[1]);
+        if (n >= 0) pct = n;
+      }
     }
   }
 
   if (pct === null) {
-    // Sin datos reales aún — mostrar -- en lugar de 0% para no confundir
-    return { pct: null, color: 'var(--muted)', texto: 'Sin datos de batería' };
+    return { pct: null, color: 'var(--muted)', texto: 'Sin datos de batería', cargando: false };
   }
 
   pct = Math.max(0, Math.min(100, pct));
-  const color = pct > 50 ? 'var(--green)' : pct > 20 ? 'var(--yellow)' : 'var(--accent)';
-  const texto = pct > 80 ? 'Batería en buen estado'
-              : pct > 50 ? 'Batería media-alta'
-              : pct > 20 ? 'Batería baja'
+  const color = cargando ? 'var(--green)'
+              : pct > 50 ? 'var(--green)'
+              : pct > 20 ? 'var(--yellow)'
+              : 'var(--accent)';
+  const texto = cargando        ? '⚡ Cargando'
+              : pct > 80        ? 'Batería en buen estado'
+              : pct > 50        ? 'Batería media-alta'
+              : pct > 20        ? 'Batería baja'
               : 'Batería crítica';
-  return { pct, color, texto };
+  return { pct, color, texto, cargando };
 }
 
 // ============================================================
