@@ -539,6 +539,164 @@ function renderHistorial() {
   `;
 }
 
+// ============================================================
+//  HELPERS DE SEMANA ISO
+// ============================================================
+function getISOWeek(d) {
+  const date = new Date(d);
+  date.setHours(0,0,0,0);
+  date.setDate(date.getDate() + 4 - (date.getDay() || 7));
+  const yearStart = new Date(date.getFullYear(), 0, 1);
+  const wk = Math.ceil((((date - yearStart) / 86400000) + 1) / 7);
+  return date.getFullYear() + '-W' + String(wk).padStart(2,'0');
+}
+
+function buildWeeklyData() {
+  const weekMap = new Map();
+  const cortes  = buildCorteRows(registrosTodos);
+  for (const r of cortes) {
+    const d = parsearFecha(r.hora);
+    if (!d) continue;
+    const key = getISOWeek(d);
+    if (!weekMap.has(key)) weekMap.set(key, { key, count: 0, totalSeg: 0, events: [] });
+    const e = weekMap.get(key);
+    e.count++;
+    e.totalSeg += (parseInt(r.durSeg) || 0);
+    e.events.push(r);
+  }
+  return Array.from(weekMap.values()).sort((a,b) => a.key.localeCompare(b.key));
+}
+
+// ── Gráfica 1: barras de cortes por semana ──────────────────
+function graficaBarrasSemanal() {
+  const semanas = buildWeeklyData().slice(-10);
+  if (semanas.length === 0) return '<div style="color:rgba(128,128,128,0.6);text-align:center;padding:16px;font-size:12px">Sin datos suficientes</div>';
+
+  const W = 300, H = 90, PL = 24, PR = 8, PT = 8, PB = 22;
+  const pw = W - PL - PR, ph = H - PT - PB;
+  const maxC = Math.max(...semanas.map(s => s.count), 1);
+  const barW = pw / semanas.length;
+
+  let bars = '', labels = '', yLines = '';
+  for (let i = 1; i <= 4; i++) {
+    const y = PT + ph - (i/4)*ph;
+    yLines += `<line x1="${PL}" y1="${y.toFixed(1)}" x2="${W-PR}" y2="${y.toFixed(1)}" stroke="rgba(255,255,255,0.06)" stroke-width="1"/>`;
+    if (i % 2 === 0) yLines += `<text x="${PL-3}" y="${(y+4).toFixed(1)}" font-size="7" fill="rgba(255,255,255,0.3)" text-anchor="end">${Math.round(maxC*i/4)}</text>`;
+  }
+
+  semanas.forEach((w, i) => {
+    const barH = Math.max(2, (w.count / maxC) * ph);
+    const x = PL + i * barW;
+    const y = PT + ph - barH;
+    const ratio = w.count / maxC;
+    const col = `rgba(${Math.round(78+155*ratio)},${Math.round(204-135*ratio)},${Math.round(163-67*ratio)},0.85)`;
+    bars   += `<rect x="${(x+2).toFixed(1)}" y="${y.toFixed(1)}" width="${(barW-4).toFixed(1)}" height="${barH.toFixed(1)}" fill="${col}" rx="2"/>`;
+    if (barH > 14) bars += `<text x="${(x+barW/2).toFixed(1)}" y="${(y+barH/2+4).toFixed(1)}" font-size="9" fill="white" text-anchor="middle" font-weight="600">${w.count}</text>`;
+    const wn = w.key.split('-W')[1];
+    labels += `<text x="${(x+barW/2).toFixed(1)}" y="${H-5}" font-size="7" fill="rgba(255,255,255,0.4)" text-anchor="middle">S${wn}</text>`;
+  });
+
+  return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" style="width:100%">
+    <line x1="${PL}" y1="${PT}" x2="${PL}" y2="${PT+ph}" stroke="rgba(255,255,255,0.2)" stroke-width="1"/>
+    <line x1="${PL}" y1="${PT+ph}" x2="${W-PR}" y2="${PT+ph}" stroke="rgba(255,255,255,0.2)" stroke-width="1"/>
+    ${yLines}${bars}${labels}
+  </svg>`;
+}
+
+// ── Gráfica 2: senoidal semanal (semana actual) ─────────────
+function graficaSemana() {
+  const ahora = new Date();
+  const semanaActual = getISOWeek(ahora);
+
+  // Encontrar el lunes de esta semana
+  const lunes = new Date(ahora);
+  lunes.setHours(0,0,0,0);
+  lunes.setDate(lunes.getDate() - ((lunes.getDay() || 7) - 1));
+
+  // Eventos de toda la semana actual
+  const eventosSemana = registrosTodos.filter(r => {
+    const d = parsearFecha(r.hora);
+    return d && getISOWeek(d) === semanaActual;
+  });
+
+  // Periodos de corte como fracción de la semana (0=lunes 00:00, 1=domingo 23:59)
+  const periodosCorte = [];
+  const horasCubiertas = new Set();
+  for (const ev of eventosSemana) {
+    const tipo = (ev.tipo || '').trim();
+    if (tipo === 'CORTE' || tipo === 'FALLA_FIN') {
+      const dS = parsearFecha(ev.hora);
+      const dE = ev.notas && ev.notas.length >= 10 ? parsearFecha(ev.notas) : null;
+      if (!dS) continue;
+      const ini = (dS - lunes) / (7 * 24 * 3600000);
+      const fin = dE ? (dE - lunes) / (7 * 24 * 3600000) : Math.min(ini + 0.003, 1);
+      periodosCorte.push({ ini: Math.max(0, ini), fin: Math.min(1, fin) });
+      horasCubiertas.add(Math.floor((dS - lunes) / 3600000));
+    }
+  }
+  for (const ev of eventosSemana) {
+    const tipo = (ev.tipo || '').trim();
+    if ((tipo === 'ALERTA' || tipo === 'FALLA_INICIO')) {
+      const dS = parsearFecha(ev.hora);
+      if (!dS) continue;
+      const hOffset = Math.floor((dS - lunes) / 3600000);
+      if (horasCubiertas.has(hOffset)) continue;
+      const ini = (dS - lunes) / (7 * 24 * 3600000);
+      periodosCorte.push({ ini: Math.max(0, ini), fin: Math.min(ini + 0.003, 1) });
+    }
+  }
+
+  const W = 300, H = 90, PL = 28, PR = 8, PT = 6, PB = 22;
+  const pw = W - PL - PR, ph = H - PT - PB;
+  const Y_PEAK = 160, yCtr = PT + ph / 2, yScale = (ph / 2) / Y_PEAK;
+  const yPos = v => yCtr - v * yScale;
+
+  // 21 ciclos en 7 días (3/día) — visible y legible
+  const CYCLES = 21, SAMPLES = 400;
+  let path = '';
+  for (let i = 0; i <= SAMPLES; i++) {
+    const t = i / SAMPLES;
+    const x = PL + t * pw;
+    const enCorte = periodosCorte.some(p => t >= p.ini && t <= p.fin);
+    const amp = enCorte ? 0 : 110 * Math.SQRT2;
+    const v = amp * Math.sin(2 * Math.PI * CYCLES * t);
+    const y = Math.max(PT, Math.min(PT+ph, yPos(v)));
+    path += (i === 0 ? 'M' : 'L') + x.toFixed(1) + ',' + y.toFixed(1) + ' ';
+  }
+
+  // Marcas de días
+  const DIAS_CORTOS = ['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'];
+  let dayLabels = '', dayLines = '';
+  for (let d = 0; d <= 7; d++) {
+    const x = PL + (d/7)*pw;
+    if (d < 7) dayLabels += `<text x="${(x + pw/14).toFixed(1)}" y="${H-5}" font-size="7" fill="rgba(255,255,255,0.4)" text-anchor="middle">${DIAS_CORTOS[d]}</text>`;
+    if (d > 0 && d < 7) dayLines += `<line x1="${x.toFixed(1)}" y1="${PT}" x2="${x.toFixed(1)}" y2="${PT+ph}" stroke="rgba(255,255,255,0.06)" stroke-width="1"/>`;
+  }
+
+  // Fondos de corte
+  let rects = '';
+  for (const p of periodosCorte) {
+    const x = PL + p.ini * pw;
+    const w = Math.max((p.fin - p.ini) * pw, 3);
+    rects += `<rect x="${x.toFixed(1)}" y="${PT}" width="${w.toFixed(1)}" height="${ph}" fill="rgba(233,69,96,0.25)" rx="1"/>`;
+  }
+
+  const yCtrS = yCtr.toFixed(1);
+  const noData = periodosCorte.length === 0 && eventosSemana.length === 0;
+
+  return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" style="width:100%">
+    <line x1="${PL}" y1="${PT}"    x2="${PL}"   y2="${PT+ph}" stroke="rgba(255,255,255,0.2)" stroke-width="1"/>
+    <line x1="${PL}" y1="${PT+ph}" x2="${W-PR}"  y2="${PT+ph}" stroke="rgba(255,255,255,0.2)" stroke-width="1"/>
+    <line x1="${PL}" y1="${yCtrS}" x2="${W-PR}"  y2="${yCtrS}" stroke="rgba(255,255,255,0.15)" stroke-width="1"/>
+    ${dayLines}${rects}
+    <path d="${path.trim()}" fill="none" stroke="${noData ? 'rgba(78,204,163,0.3)' : '#4ecca3'}" stroke-width="1.3" stroke-linejoin="round"/>
+    ${dayLabels}
+    <text x="${PL-4}" y="${PT+6}"   font-size="7" fill="rgba(255,255,255,0.35)" text-anchor="end">+${Y_PEAK}V</text>
+    <text x="${PL-4}" y="${yCtr+3}" font-size="7" fill="rgba(255,255,255,0.3)"  text-anchor="end">0V</text>
+    <text x="${PL-4}" y="${PT+ph}"  font-size="7" fill="rgba(255,255,255,0.35)" text-anchor="end">-${Y_PEAK}V</text>
+  </svg>`;
+}
+
 function renderEstadisticas() {
   const grid = document.getElementById('mainGrid');
   const r    = resumen && resumen.resumen ? resumen.resumen : {};
@@ -563,6 +721,22 @@ function renderEstadisticas() {
         <div><div class="card-label">Tiempo total sin luz</div><div class="card-value" style="font-size:18px">${r.tiempoTotalSinLuz||'--'}</div></div>
       </div>
     </div>
+
+    <div class="card full">
+      <div class="card-label">Distribución de picos por semana</div>
+      <div class="card-sub" style="margin-bottom:12px">Cortes registrados por semana (últimas 10)</div>
+      ${graficaBarrasSemanal()}
+    </div>
+
+    <div class="card full">
+      <div class="card-label">Comportamiento eléctrico — semana actual</div>
+      <div class="card-sub" style="margin-bottom:12px">Voltaje AC con cortes (Lun → Dom)</div>
+      ${graficaSemana()}
+      <div style="font-size:10px;color:var(--muted);text-align:right;margin-top:4px">
+        <span style="color:rgba(233,69,96,0.7)">▮</span> Corte detectado
+      </div>
+    </div>
+
     <div class="card full">
       <div class="card-label">Franja más afectada</div>
       <div class="card-value" style="font-size:22px;color:var(--accent)">${r.franjaMaxima||'Sin datos'}</div>
@@ -1182,14 +1356,16 @@ function timelineHTML(eventosDelDia) {
 }
 
 function graficaDia(eventosDelDia) {
-  const W = 320, H = 100, PL = 32, PR = 8, PT = 8, PB = 22;
+  const W = 320, H = 120, PL = 32, PR = 8, PT = 6, PB = 22;
   const pw = W - PL - PR, ph = H - PT - PB;
 
-  // ── Escala Y: 0V a 130V ──────────────────────────────────
-  const Y_MAX = 130, Y_MIN = 0;
-  const yPos  = v => PT + ph - (v - Y_MIN) / (Y_MAX - Y_MIN) * ph;
+  // ── Escala bipolar ±160V ──────────────────────────────────
+  const Y_PEAK = 160;
+  const yCtr   = PT + ph / 2;
+  const yScale = (ph / 2) / Y_PEAK;
+  const yPos   = v => yCtr - v * yScale;
 
-  // ── Puntos de voltaje reales (HEARTBEAT / ALERTA con "XXV") ──
+  // ── Puntos de voltaje reales (HEARTBEAT / ALERTA) ─────────
   const puntosVoltaje = [];
   for (const ev of eventosDelDia) {
     const tipo = (ev.tipo || '').trim();
@@ -1209,7 +1385,6 @@ function graficaDia(eventosDelDia) {
   // ── Periodos de corte (sin duplicados ALERTA+CORTE) ───────
   const periodosCorte = [];
   const horasCubiertas = new Set();
-
   for (const ev of eventosDelDia) {
     const tipo = (ev.tipo || '').trim();
     if (tipo === 'CORTE' || tipo === 'FALLA_FIN') {
@@ -1232,15 +1407,22 @@ function graficaDia(eventosDelDia) {
     }
   }
 
-  // ── Función de voltaje en el instante t ──────────────────
-  function voltajeEn(t) {
-    const enCorte = periodosCorte.some(p => t >= p.ini && t <= p.fin);
-    if (enCorte) return 0;
+  // ── Fondo de cortes (rectángulos rojos) ───────────────────
+  let rects = '';
+  for (const p of periodosCorte) {
+    const x = PL + p.ini * pw;
+    const w = Math.max((p.fin - p.ini) * pw, 3);
+    rects += `<rect x="${x.toFixed(1)}" y="${PT}" width="${w.toFixed(1)}" height="${ph}" fill="rgba(233,69,96,0.22)" rx="2"/>`;
+  }
 
-    if (!tieneVoltaje) return 110; // nominal Venezuela
+  // ── Onda senoidal (45 ciclos representativos) ─────────────
+  const NUM_CYCLES = 45;
+  const SAMPLES    = 500;
+  const TWO_PI_N   = 2 * Math.PI * NUM_CYCLES;
 
+  function voltajeRMS(t) {
+    if (!tieneVoltaje || puntosVoltaje.length === 0) return 110;
     if (puntosVoltaje.length === 1) return puntosVoltaje[0].v;
-
     let antes = null, despues = null;
     for (const p of puntosVoltaje) {
       if (p.t <= t) antes = p;
@@ -1252,63 +1434,42 @@ function graficaDia(eventosDelDia) {
     return (antes || despues).v;
   }
 
-  // ── Relleno rojo durante los cortes ─────────────────────
-  let rects = '';
-  const y0 = yPos(0);
-  for (const p of periodosCorte) {
-    const x  = PL + p.ini * pw;
-    const w  = Math.max((p.fin - p.ini) * pw, 3);
-    const v  = 110; // altura de la línea nominal antes del corte
-    const yV = yPos(v);
-    // Relleno desde 0V hasta 110V (toda la zona del corte)
-    rects += `<rect x="${x.toFixed(1)}" y="${yV.toFixed(1)}" width="${w.toFixed(1)}" height="${(y0-yV).toFixed(1)}" fill="rgba(233,69,96,0.30)" rx="1"/>`;
-    // Borde rojo más visible
-    rects += `<rect x="${x.toFixed(1)}" y="${PT}" width="${w.toFixed(1)}" height="${ph}" fill="rgba(233,69,96,0.10)" rx="1"/>`;
-  }
-
-  // ── Línea de voltaje (paso rectangular) ─────────────────
-  const SAMPLES = 400;
   let path = '';
-  let prevV = voltajeEn(0);
-  let prevX = PL;
-  let prevY = yPos(prevV);
-  path += `M${prevX.toFixed(1)},${prevY.toFixed(1)} `;
-
-  for (let i = 1; i <= SAMPLES; i++) {
-    const t  = i / SAMPLES;
-    const x  = PL + t * pw;
-    const v  = voltajeEn(t);
-    const y  = yPos(Math.max(Y_MIN, Math.min(Y_MAX, v)));
-
-    if (Math.abs(v - prevV) > 5) {
-      // Transición brusca (corte o retorno): dibujar segmento vertical primero
-      path += `L${prevX.toFixed(1)},${y.toFixed(1)} `;
-    }
-    path += `L${x.toFixed(1)},${y.toFixed(1)} `;
-    prevV = v; prevX = x; prevY = y;
+  for (let i = 0; i <= SAMPLES; i++) {
+    const t = i / SAMPLES;
+    const x = PL + t * pw;
+    const enCorte = periodosCorte.some(p => t >= p.ini && t <= p.fin);
+    // Ligera variación de amplitud (±1%) para aspecto más natural
+    const variation = 1 + Math.sin(i * 0.41) * 0.01;
+    const ampPeak = enCorte ? 0 : voltajeRMS(t) * Math.SQRT2 * variation;
+    const v = ampPeak * Math.sin(TWO_PI_N * t);
+    const y = Math.max(PT, Math.min(PT + ph, yPos(v)));
+    path += (i === 0 ? 'M' : 'L') + x.toFixed(1) + ',' + y.toFixed(1) + ' ';
   }
 
-  // ── Líneas de referencia ─────────────────────────────────
-  const y110  = yPos(110).toFixed(1);
-  const y90   = yPos(90).toFixed(1);
-  const y125  = yPos(125).toFixed(1);
-  let refs = '';
-  // 110V nominal (blanco muy suave)
-  refs += `<line x1="${PL}" y1="${y110}" x2="${W-PR}" y2="${y110}" stroke="rgba(255,255,255,0.15)" stroke-width="1"/>`;
-  // 90V bajón (naranja punteado)
-  refs += `<line x1="${PL}" y1="${y90}" x2="${W-PR}" y2="${y90}" stroke="rgba(245,166,35,0.6)" stroke-width="1" stroke-dasharray="4,3"/>`;
-  // 125V subida (rojo punteado)
-  refs += `<line x1="${PL}" y1="${y125}" x2="${W-PR}" y2="${y125}" stroke="rgba(233,69,96,0.6)" stroke-width="1" stroke-dasharray="4,3"/>`;
+  // ── Referencias ───────────────────────────────────────────
+  const yCtrStr = yCtr.toFixed(1);
+  let refs = `<line x1="${PL}" y1="${yCtrStr}" x2="${W-PR}" y2="${yCtrStr}" stroke="rgba(255,255,255,0.18)" stroke-width="1"/>`;
+  const y90p  = yPos( 90 * Math.SQRT2).toFixed(1);
+  const y90n  = yPos(-90 * Math.SQRT2).toFixed(1);
+  const y125p = yPos(125 * Math.SQRT2).toFixed(1);
+  const y125n = yPos(-125 * Math.SQRT2).toFixed(1);
+  refs += `<line x1="${PL}" y1="${y90p}"  x2="${W-PR}" y2="${y90p}"  stroke="rgba(245,166,35,0.5)"  stroke-width="1" stroke-dasharray="3,3"/>`;
+  refs += `<line x1="${PL}" y1="${y90n}"  x2="${W-PR}" y2="${y90n}"  stroke="rgba(245,166,35,0.5)"  stroke-width="1" stroke-dasharray="3,3"/>`;
+  refs += `<line x1="${PL}" y1="${y125p}" x2="${W-PR}" y2="${y125p}" stroke="rgba(233,69,96,0.5)"   stroke-width="1" stroke-dasharray="3,3"/>`;
+  refs += `<line x1="${PL}" y1="${y125n}" x2="${W-PR}" y2="${y125n}" stroke="rgba(233,69,96,0.5)"   stroke-width="1" stroke-dasharray="3,3"/>`;
 
-  // ── Puntos de medición reales ────────────────────────────
+  // Puntos de medición reales
   let dots = '';
-  for (const p of puntosVoltaje) {
-    const cx = PL + p.t * pw;
-    const cy = yPos(Math.max(Y_MIN, Math.min(Y_MAX, p.v)));
-    dots += `<circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="2" fill="#4ecca3" opacity="0.9"/>`;
+  if (tieneVoltaje) {
+    for (const p of puntosVoltaje) {
+      const cx = PL + p.t * pw;
+      const cy = yCtr;
+      dots += `<circle cx="${cx.toFixed(1)}" cy="${cy}" r="2" fill="#4ecca3" opacity="0.7"/>`;
+    }
   }
 
-  // ── Etiquetas horas ──────────────────────────────────────
+  // ── Etiquetas horas ───────────────────────────────────────
   let etiq = '';
   for (let h = 0; h <= 24; h += 6) {
     const x = PL + (h / 24) * pw;
@@ -1317,23 +1478,16 @@ function graficaDia(eventosDelDia) {
 
   return `<div style="overflow-x:auto;">
     <svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">
-      <!-- Ejes -->
       <line x1="${PL}" y1="${PT}"    x2="${PL}"   y2="${PT+ph}" stroke="rgba(255,255,255,0.2)" stroke-width="1"/>
       <line x1="${PL}" y1="${PT+ph}" x2="${W-PR}"  y2="${PT+ph}" stroke="rgba(255,255,255,0.2)" stroke-width="1"/>
-      <!-- Relleno de cortes -->
-      ${rects}
-      <!-- Referencias -->
       ${refs}
-      <!-- Línea de voltaje -->
-      <path d="${path.trim()}" fill="none" stroke="#4ecca3" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
-      <!-- Puntos reales -->
+      ${rects}
+      <path d="${path.trim()}" fill="none" stroke="#4ecca3" stroke-width="1.4" stroke-linejoin="round"/>
       ${dots}
-      <!-- Horas -->
       ${etiq}
-      <!-- Etiquetas Y -->
-      <text x="${PL-4}" y="${PT+6}"  font-size="7" fill="rgba(255,255,255,0.4)" text-anchor="end">130V</text>
-      <text x="${PL-4}" y="${yPos(110)+3}" font-size="7" fill="rgba(255,255,255,0.35)" text-anchor="end">110V</text>
-      <text x="${PL-4}" y="${PT+ph}"  font-size="7" fill="rgba(255,255,255,0.4)" text-anchor="end">0V</text>
+      <text x="${PL-4}" y="${PT+6}"   font-size="7" fill="rgba(255,255,255,0.4)" text-anchor="end">+${Y_PEAK}V</text>
+      <text x="${PL-4}" y="${yCtr+3}" font-size="7" fill="rgba(255,255,255,0.35)" text-anchor="end">0V</text>
+      <text x="${PL-4}" y="${PT+ph}"  font-size="7" fill="rgba(255,255,255,0.4)" text-anchor="end">-${Y_PEAK}V</text>
     </svg>
   </div>
   <div style="font-size:10px;color:rgba(255,255,255,0.35);text-align:right;margin-top:4px;">
