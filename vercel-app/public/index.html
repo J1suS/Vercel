@@ -605,95 +605,91 @@ function graficaBarrasSemanal() {
 
 // ── Gráfica 2: senoidal semanal (semana actual) ─────────────
 function graficaSemana() {
-  const ahora = new Date();
+  const ahora    = new Date();
   const semanaActual = getISOWeek(ahora);
-
-  // Encontrar el lunes de esta semana
-  const lunes = new Date(ahora);
-  lunes.setHours(0,0,0,0);
+  const lunes    = new Date(ahora);
+  lunes.setHours(0, 0, 0, 0);
   lunes.setDate(lunes.getDate() - ((lunes.getDay() || 7) - 1));
+  const lunesMs  = lunes.getTime();
 
-  // Eventos de toda la semana actual
   const eventosSemana = registrosTodos.filter(r => {
     const d = parsearFecha(r.hora);
     return d && getISOWeek(d) === semanaActual;
   });
 
-  // Periodos de corte como fracción de la semana (0=lunes 00:00, 1=domingo 23:59)
-  const periodosCorte = [];
-  const horasCubiertas = new Set();
+  // Matriz 7 días × 4 bloques (00-05, 06-11, 12-17, 18-23)
+  // 0 = sin datos aún, 1 = con luz, 2 = sin luz
+  const matrix = Array.from({ length: 7 }, () => Array(4).fill(0));
+
+  // Marcar días que tienen cualquier registro como "con luz" por defecto
+  const diasConDatos = new Set();
+  for (const ev of eventosSemana) {
+    const d = parsearFecha(ev.hora);
+    if (!d) continue;
+    const dia = Math.floor((d.getTime() - lunesMs) / 86400000);
+    if (dia >= 0 && dia <= 6) diasConDatos.add(dia);
+  }
+  for (const dia of diasConDatos) {
+    for (let b = 0; b < 4; b++) matrix[dia][b] = 1;
+  }
+
+  // Marcar bloques con cortes
+  const hsCubiertas = new Set();
   for (const ev of eventosSemana) {
     const tipo = (ev.tipo || '').trim();
-    if (tipo === 'CORTE' || tipo === 'FALLA_FIN') {
-      const dS = parsearFecha(ev.hora);
-      const dE = ev.notas && ev.notas.length >= 10 ? parsearFecha(ev.notas) : null;
-      if (!dS) continue;
-      const ini = (dS - lunes) / (7 * 24 * 3600000);
-      const fin = dE ? (dE - lunes) / (7 * 24 * 3600000) : Math.min(ini + 0.003, 1);
-      periodosCorte.push({ ini: Math.max(0, ini), fin: Math.min(1, fin) });
-      horasCubiertas.add(Math.floor((dS - lunes) / 3600000));
+    if (tipo !== 'CORTE' && tipo !== 'FALLA_FIN') continue;
+    const dS = parsearFecha(ev.hora);
+    if (!dS) continue;
+    const dE = ev.notas && ev.notas.length >= 10 ? parsearFecha(ev.notas) : null;
+    const finMs = dE ? dE.getTime() : dS.getTime() + 3600000;
+    let cur = new Date(dS); cur.setMinutes(0, 0, 0);
+    while (cur.getTime() <= finMs) {
+      const dia = Math.floor((cur.getTime() - lunesMs) / 86400000);
+      if (dia >= 0 && dia <= 6) {
+        matrix[dia][Math.floor(cur.getHours() / 6)] = 2;
+        hsCubiertas.add(dia + '_' + cur.getHours());
+      }
+      cur.setHours(cur.getHours() + 1);
     }
   }
   for (const ev of eventosSemana) {
     const tipo = (ev.tipo || '').trim();
-    if ((tipo === 'ALERTA' || tipo === 'FALLA_INICIO')) {
-      const dS = parsearFecha(ev.hora);
-      if (!dS) continue;
-      const hOffset = Math.floor((dS - lunes) / 3600000);
-      if (horasCubiertas.has(hOffset)) continue;
-      const ini = (dS - lunes) / (7 * 24 * 3600000);
-      periodosCorte.push({ ini: Math.max(0, ini), fin: Math.min(ini + 0.003, 1) });
+    if (tipo !== 'ALERTA' && tipo !== 'FALLA_INICIO') continue;
+    const dS = parsearFecha(ev.hora);
+    if (!dS) continue;
+    const dia = Math.floor((dS.getTime() - lunesMs) / 86400000);
+    if (dia < 0 || dia > 6) continue;
+    const h   = dS.getHours();
+    if (hsCubiertas.has(dia + '_' + h)) continue;
+    matrix[dia][Math.floor(h / 6)] = 2;
+  }
+
+  // SVG heatmap
+  const W = 300, H = 96, PL = 28, PR = 4, PT = 18, PB = 10;
+  const cw = (W - PL - PR) / 7;
+  const ch = (H - PT - PB) / 4;
+  const DIAS    = ['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'];
+  const BLOQUES = ['00h','06h','12h','18h'];
+
+  let cells = '', dayLabels = '', timeLabels = '';
+  for (let d = 0; d < 7; d++) {
+    const cx = PL + d * cw + cw / 2;
+    dayLabels += `<text x="${cx.toFixed(1)}" y="${PT - 5}" font-size="8" fill="rgba(255,255,255,0.5)" text-anchor="middle">${DIAS[d]}</text>`;
+    for (let b = 0; b < 4; b++) {
+      const x = PL + d * cw, y = PT + b * ch;
+      const fill = matrix[d][b] === 2 ? 'rgba(233,69,96,0.85)'
+                 : matrix[d][b] === 1 ? 'rgba(78,204,163,0.72)'
+                 : 'rgba(128,128,128,0.12)';
+      cells += `<rect x="${(x+1.5).toFixed(1)}" y="${(y+1.5).toFixed(1)}" width="${(cw-3).toFixed(1)}" height="${(ch-3).toFixed(1)}" rx="3" fill="${fill}"/>`;
     }
   }
-
-  const W = 300, H = 90, PL = 28, PR = 8, PT = 6, PB = 22;
-  const pw = W - PL - PR, ph = H - PT - PB;
-  const Y_PEAK = 160, yCtr = PT + ph / 2, yScale = (ph / 2) / Y_PEAK;
-  const yPos = v => yCtr - v * yScale;
-
-  // 21 ciclos en 7 días (3/día) — visible y legible
-  const CYCLES = 21, SAMPLES = 400;
-  let path = '';
-  for (let i = 0; i <= SAMPLES; i++) {
-    const t = i / SAMPLES;
-    const x = PL + t * pw;
-    const enCorte = periodosCorte.some(p => t >= p.ini && t <= p.fin);
-    const amp = enCorte ? 0 : 110 * Math.SQRT2;
-    const v = amp * Math.sin(2 * Math.PI * CYCLES * t);
-    const y = Math.max(PT, Math.min(PT+ph, yPos(v)));
-    path += (i === 0 ? 'M' : 'L') + x.toFixed(1) + ',' + y.toFixed(1) + ' ';
+  for (let b = 0; b < 4; b++) {
+    const y = PT + b * ch + ch / 2 + 3;
+    timeLabels += `<text x="${PL - 3}" y="${y.toFixed(1)}" font-size="7" fill="rgba(255,255,255,0.4)" text-anchor="end">${BLOQUES[b]}</text>`;
   }
-
-  // Marcas de días
-  const DIAS_CORTOS = ['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'];
-  let dayLabels = '', dayLines = '';
-  for (let d = 0; d <= 7; d++) {
-    const x = PL + (d/7)*pw;
-    if (d < 7) dayLabels += `<text x="${(x + pw/14).toFixed(1)}" y="${H-5}" font-size="7" fill="rgba(255,255,255,0.4)" text-anchor="middle">${DIAS_CORTOS[d]}</text>`;
-    if (d > 0 && d < 7) dayLines += `<line x1="${x.toFixed(1)}" y1="${PT}" x2="${x.toFixed(1)}" y2="${PT+ph}" stroke="rgba(255,255,255,0.06)" stroke-width="1"/>`;
-  }
-
-  // Fondos de corte
-  let rects = '';
-  for (const p of periodosCorte) {
-    const x = PL + p.ini * pw;
-    const w = Math.max((p.fin - p.ini) * pw, 3);
-    rects += `<rect x="${x.toFixed(1)}" y="${PT}" width="${w.toFixed(1)}" height="${ph}" fill="rgba(233,69,96,0.25)" rx="1"/>`;
-  }
-
-  const yCtrS = yCtr.toFixed(1);
-  const noData = periodosCorte.length === 0 && eventosSemana.length === 0;
 
   return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" style="width:100%">
-    <line x1="${PL}" y1="${PT}"    x2="${PL}"   y2="${PT+ph}" stroke="rgba(255,255,255,0.2)" stroke-width="1"/>
-    <line x1="${PL}" y1="${PT+ph}" x2="${W-PR}"  y2="${PT+ph}" stroke="rgba(255,255,255,0.2)" stroke-width="1"/>
-    <line x1="${PL}" y1="${yCtrS}" x2="${W-PR}"  y2="${yCtrS}" stroke="rgba(255,255,255,0.15)" stroke-width="1"/>
-    ${dayLines}${rects}
-    <path d="${path.trim()}" fill="none" stroke="${noData ? 'rgba(78,204,163,0.3)' : '#4ecca3'}" stroke-width="1.3" stroke-linejoin="round"/>
-    ${dayLabels}
-    <text x="${PL-4}" y="${PT+6}"   font-size="7" fill="rgba(255,255,255,0.35)" text-anchor="end">+${Y_PEAK}V</text>
-    <text x="${PL-4}" y="${yCtr+3}" font-size="7" fill="rgba(255,255,255,0.3)"  text-anchor="end">0V</text>
-    <text x="${PL-4}" y="${PT+ph}"  font-size="7" fill="rgba(255,255,255,0.35)" text-anchor="end">-${Y_PEAK}V</text>
+    ${dayLabels}${timeLabels}${cells}
   </svg>`;
 }
 
@@ -730,10 +726,11 @@ function renderEstadisticas() {
 
     <div class="card full">
       <div class="card-label">Comportamiento eléctrico — semana actual</div>
-      <div class="card-sub" style="margin-bottom:12px">Voltaje AC con cortes (Lun → Dom)</div>
+      <div class="card-sub" style="margin-bottom:12px">Franjas horarias con cortes (Lun → Dom)</div>
       ${graficaSemana()}
-      <div style="font-size:10px;color:var(--muted);text-align:right;margin-top:4px">
-        <span style="color:rgba(233,69,96,0.7)">▮</span> Corte detectado
+      <div style="font-size:10px;color:var(--muted);display:flex;gap:12px;margin-top:6px;justify-content:flex-end">
+        <span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:rgba(78,204,163,0.72);vertical-align:middle;margin-right:4px"></span>Con luz</span>
+        <span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:rgba(233,69,96,0.85);vertical-align:middle;margin-right:4px"></span>Sin luz</span>
       </div>
     </div>
 
@@ -753,7 +750,7 @@ function renderAjustes() {
       <div class="card-label">Apariencia</div>
       <div class="theme-row" style="margin-top:12px">
         <div>
-          <div class="theme-row-label">Modo claro</div>
+          <div class="theme-row-label">Tema</div>
           <div class="theme-row-sub">Cambia los colores de toda la app</div>
         </div>
         <label class="theme-switch">
