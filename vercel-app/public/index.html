@@ -350,10 +350,14 @@ function cambiarTema(checkbox) {
 async function cargarDatos() {
   try {
     paginaActual = 1;
+    const ctrl   = new AbortController();
+    const timeout = setTimeout(() => ctrl.abort(), 15000); // 15s máximo
+
     const [resDatos, resResumen] = await Promise.all([
-      fetch(SCRIPT_URL + '?accion=obtenerDatos&pagina=1&porPagina=50'),
-      fetch(SCRIPT_URL + '?accion=obtenerResumen')
+      fetch(SCRIPT_URL + '?accion=obtenerDatos&pagina=1&porPagina=50', { signal: ctrl.signal }),
+      fetch(SCRIPT_URL + '?accion=obtenerResumen', { signal: ctrl.signal })
     ]);
+    clearTimeout(timeout);
 
     datos   = await resDatos.json();
     resumen = await resResumen.json();
@@ -363,9 +367,44 @@ async function cargarDatos() {
       hayMasRegistros = datos.hayMas || false;
       actualizarHeader();
       renderizarVista();
+    } else {
+      mostrarErrorCarga('El servidor respondió con un error. Intenta de nuevo.');
     }
   } catch (e) {
+    const msg = e.name === 'AbortError'
+      ? 'La conexión tardó demasiado (>15s). Verifica tu internet.'
+      : 'No se pudo conectar con el servidor.';
+    mostrarErrorCarga(msg);
     console.error('Error cargando datos:', e);
+  }
+}
+
+function mostrarErrorCarga(mensaje) {
+  // Actualizar el header con lo que haya (puede estar en null)
+  const statusEl = document.getElementById('headerStatus');
+  const descEl   = document.getElementById('headerDesc');
+  if (statusEl) {
+    statusEl.textContent = 'Sin conexión';
+    statusEl.className   = 'header-status';
+    statusEl.style.color = 'var(--muted)';
+  }
+  if (descEl) descEl.textContent = mensaje;
+
+  // Mostrar mensaje en el grid con botón de reintentar
+  const grid = document.getElementById('mainGrid');
+  if (grid) {
+    grid.innerHTML = `
+      <div class="card full" style="text-align:center;padding:32px 20px">
+        <div style="font-size:32px;margin-bottom:12px">⚡</div>
+        <div style="font-size:15px;font-weight:500;color:var(--text);margin-bottom:8px">Sin datos</div>
+        <div style="font-size:13px;color:var(--muted);margin-bottom:24px;line-height:1.5">${mensaje}</div>
+        <button onclick="cargarDatos()" style="
+          background:var(--green);color:#000;border:none;border-radius:12px;
+          padding:12px 28px;font-size:15px;font-weight:600;cursor:pointer;">
+          Reintentar
+        </button>
+      </div>
+    `;
   }
 }
 
@@ -733,38 +772,6 @@ function graficaSemana() {
   </svg>`;
 }
   const semanas = buildWeeklyData().slice(-10);
-  if (semanas.length === 0) return '<div style="color:rgba(128,128,128,0.6);text-align:center;padding:16px;font-size:12px">Sin datos suficientes</div>';
-
-  const W = 300, H = 90, PL = 24, PR = 8, PT = 8, PB = 22;
-  const pw = W - PL - PR, ph = H - PT - PB;
-  const maxC = Math.max(...semanas.map(s => s.count), 1);
-  const barW = pw / semanas.length;
-
-  let bars = '', labels = '', yLines = '';
-  for (let i = 1; i <= 4; i++) {
-    const y = PT + ph - (i/4)*ph;
-    yLines += `<line x1="${PL}" y1="${y.toFixed(1)}" x2="${W-PR}" y2="${y.toFixed(1)}" stroke="rgba(255,255,255,0.06)" stroke-width="1"/>`;
-    if (i % 2 === 0) yLines += `<text x="${PL-3}" y="${(y+4).toFixed(1)}" font-size="7" fill="rgba(255,255,255,0.3)" text-anchor="end">${Math.round(maxC*i/4)}</text>`;
-  }
-
-  semanas.forEach((w, i) => {
-    const barH = Math.max(2, (w.count / maxC) * ph);
-    const x = PL + i * barW;
-    const y = PT + ph - barH;
-    const ratio = w.count / maxC;
-    const col = `rgba(${Math.round(78+155*ratio)},${Math.round(204-135*ratio)},${Math.round(163-67*ratio)},0.85)`;
-    bars   += `<rect x="${(x+2).toFixed(1)}" y="${y.toFixed(1)}" width="${(barW-4).toFixed(1)}" height="${barH.toFixed(1)}" fill="${col}" rx="2"/>`;
-    if (barH > 14) bars += `<text x="${(x+barW/2).toFixed(1)}" y="${(y+barH/2+4).toFixed(1)}" font-size="9" fill="white" text-anchor="middle" font-weight="600">${w.count}</text>`;
-    const wn = w.key.split('-W')[1];
-    labels += `<text x="${(x+barW/2).toFixed(1)}" y="${H-5}" font-size="7" fill="rgba(255,255,255,0.4)" text-anchor="middle">S${wn}</text>`;
-  });
-
-  return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" style="width:100%">
-    <line x1="${PL}" y1="${PT}" x2="${PL}" y2="${PT+ph}" stroke="rgba(255,255,255,0.2)" stroke-width="1"/>
-    <line x1="${PL}" y1="${PT+ph}" x2="${W-PR}" y2="${PT+ph}" stroke="rgba(255,255,255,0.2)" stroke-width="1"/>
-    ${yLines}${bars}${labels}
-  </svg>`;
-
 // ── Gráfica 2: senoidal semanal (semana actual) ─────────────
 
 function renderEstadisticas() {
