@@ -925,62 +925,83 @@ function itemHistorial(r) {
  *  - ALERTA sin CORTE correspondiente → se muestra como "en curso"
  * Los ALERTA que ya tienen su CORTE se omiten (el CORTE los representa).
  */
+function esTipoAnomalia(tipo) {
+  const t = (tipo || '').trim();
+  return t === 'BAJON' || t === 'SUBIDA';
+}
+
 function buildCorteRows(registros) {
-  // Índice de horas de inicio ya cubiertas por algún CORTE
-  const cubiertas = new Set();
-  const cortes    = [];
-  const alertas   = [];
+  const cubiertas  = new Set();
+  const cortes     = [];
+  const alertas    = [];
+  const anomalias  = [];
 
   for (const r of registros) {
-    if (esTipoFin(r.tipo)) {
-      cortes.push(r);
-      // Marca los primeros 16 chars de la hora como "cubierta"
-      cubiertas.add(r.hora.toString().substring(0, 16));
-    } else if (esTipoInicio(r.tipo)) {
-      alertas.push(r);
-    }
+    const t = (r.tipo || '').trim();
+    if (esTipoFin(t))    { cortes.push(r);   cubiertas.add(r.hora.toString().substring(0, 16)); }
+    else if (esTipoInicio(t)) alertas.push(r);
+    else if (esTipoAnomalia(t)) anomalias.push(r);
   }
 
-  // ALERTA que no tiene CORTE correspondiente = corte aún en curso
-  const alertasSinCorte = alertas.filter(a => {
-    const clave = a.hora.toString().substring(0, 16);
-    return !cubiertas.has(clave);
-  });
+  const alertasSinCorte = alertas.filter(a => !cubiertas.has(a.hora.toString().substring(0, 16)));
 
-  // Unir y ordenar: más recientes primero (por hora de inicio)
-  const todos = [...cortes, ...alertasSinCorte].sort((a, b) => {
-    const da = parsearFecha(a.hora);
-    const db = parsearFecha(b.hora);
+  return [...cortes, ...alertasSinCorte, ...anomalias].sort((a, b) => {
+    const da = parsearFecha(a.hora), db = parsearFecha(b.hora);
     if (!da || !db) return 0;
     return db - da;
   });
-
-  return todos;
 }
 
-/** Renderiza una fila unificada de corte. */
 function itemCorte(r) {
-  const esFin     = esTipoFin(r.tipo);
-  const enCurso   = !esFin;  // ALERTA sin CORTE = corte activo
+  const tipo      = (r.tipo || '').trim();
+  const esInicio  = esTipoInicio(tipo);
+  const esFin     = esTipoFin(tipo);
+  const esBajon   = tipo === 'BAJON';
+  const esSubida  = tipo === 'SUBIDA';
+  const enCurso   = esInicio && !esFin;
   const fecha     = formatFechaCorta(r.hora);
-  const horaIni   = formatHoraCorta(r.hora);
-  const horaFin   = esFin && r.notas && r.notas.length >= 10
-    ? formatHoraCorta(r.notas) : null;
-  const duracion  = (r.durHMS && r.durHMS !== '-' && r.durHMS !== '0h 0m 0s')
-    ? r.durHMS : (enCurso ? 'En curso' : '');
+  const duracion  = (r.durHMS && r.durHMS !== '-' && r.durHMS !== '0h 0m 0s') ? r.durHMS : '';
+
+  // Para BAJON/SUBIDA: mostrar el voltaje del campo notas
+  const voltaje   = (esBajon || esSubida) && r.notas && r.notas.match(/[\d.]+V/)
+    ? r.notas.match(/([\d.]+V)/)[1] : '';
+
+  // Para CORTE: hora de retorno desde notas
+  const horaEvento = esFin && r.notas && r.notas.length >= 10
+    ? formatHoraCorta(r.notas)
+    : formatHoraCorta(r.hora);
+
+  // Etiqueta, color e ícono según tipo
+  const etiqueta = esBajon   ? 'Bajón de luz'
+                 : esSubida  ? 'Subida de luz'
+                 : enCurso   ? 'Corte en curso'
+                 : 'Corte de luz';
+
+  const color = esBajon  ? 'var(--accent)'
+              : esSubida ? 'var(--accent)'
+              : enCurso  ? 'var(--yellow)'
+              : 'var(--green)';
+
+  const icono = esBajon  ? '📉'
+              : esSubida ? '📈'
+              : '⚡';
+
+  const claseIcon = (esBajon || esSubida) ? 'inicio' : 'inicio';
+
+  // Columna derecha: voltaje para anomalías, duración para cortes
+  const derechaSup = esBajon || esSubida ? voltaje : (duracion || (enCurso ? 'En curso' : ''));
+  const derechaInf = esBajon || esSubida ? horaEvento : horaEvento;
 
   return `
     <div class="historial-item" onclick="abrirDetalle(${r.n})">
-      <div class="h-icon inicio">⚡</div>
+      <div class="h-icon ${claseIcon}">${icono}</div>
       <div class="h-body">
-        <div class="h-tipo" style="color:${enCurso ? 'var(--yellow)' : 'var(--green)'}">
-          ${enCurso ? 'Corte en curso' : 'Corte de luz'}
-        </div>
+        <div class="h-tipo" style="color:${color}">${etiqueta}</div>
         <div class="h-hora">${fecha}</div>
       </div>
       <div class="h-right">
-        <div class="h-dur">${duracion}</div>
-        <div class="h-hora-right">${horaFin ? horaFin : horaIni}</div>
+        ${derechaSup ? `<div class="h-dur" style="${(esBajon||esSubida)?'color:var(--accent)':''}">${derechaSup}</div>` : ''}
+        <div class="h-hora-right">${derechaInf}</div>
       </div>
     </div>
   `;
@@ -1753,10 +1774,11 @@ async function registrarServiceWorker() {
 //  mientras la página está abierta. No espera el ciclo de 60s.
 // ============================================================
 function manejarPushEnVivo(pushDatos) {
-  // Apps Script v5 siempre normaliza el tipoPush a FALLA_INICIO / FALLA_FIN
   const tipo      = (pushDatos.tipo || '').trim();
   const esFalla   = tipo === 'FALLA_INICIO';
   const esRetorno = tipo === 'FALLA_FIN';
+  const esBajon   = tipo === 'BAJON';
+  const esSubida  = tipo === 'SUBIDA';
 
   // 1 · Actualizar el texto grande con animación de fadeSwap
   const statusEl = document.getElementById('headerStatus');
@@ -1786,22 +1808,28 @@ function manejarPushEnVivo(pushDatos) {
     }
   }
 
-  // 2 · Insertar fila animada en "Últimos eventos" con el nuevo formato unificado
+  // 2 · Insertar fila animada en "Últimos eventos"
   if (vistaActual === 'inicio') {
     const lista = document.querySelector('#mainGrid .historial-list');
     if (lista) {
       const nuevoItem = document.createElement('div');
       nuevoItem.className = 'historial-item nuevo';
+
+      let icono, etiqueta, color, valorDer;
+      if      (esFalla)   { icono='⚡'; etiqueta='Corte en curso';  color='var(--yellow)'; valorDer='En curso'; }
+      else if (esRetorno) { icono='⚡'; etiqueta='Corte de luz';    color='var(--green)';  valorDer='recién restaurado'; }
+      else if (esBajon)   { icono='📉'; etiqueta='Bajón de luz';    color='var(--accent)'; const m=(pushDatos.cuerpo||'').match(/([\d.]+V)/); valorDer=m?m[1]:''; }
+      else if (esSubida)  { icono='📈'; etiqueta='Subida de luz';   color='var(--accent)'; const m=(pushDatos.cuerpo||'').match(/([\d.]+V)/); valorDer=m?m[1]:''; }
+      else                { icono='⚡'; etiqueta='Evento';           color='var(--muted)';  valorDer=''; }
+
       nuevoItem.innerHTML = `
-        <div class="h-icon inicio">⚡</div>
+        <div class="h-icon inicio">${icono}</div>
         <div class="h-body">
-          <div class="h-tipo" style="color:${esFalla ? 'var(--yellow)' : 'var(--accent)'}">
-            ${esFalla ? 'Corte en curso' : 'Corte de luz'}
-          </div>
+          <div class="h-tipo" style="color:${color}">${etiqueta}</div>
           <div class="h-hora">ahora mismo</div>
         </div>
         <div class="h-right">
-          <div class="h-dur">${esFalla ? 'En curso' : 'recién restaurado'}</div>
+          ${valorDer ? `<div class="h-dur" style="${(esBajon||esSubida)?'color:var(--accent)':''}">${valorDer}</div>` : ''}
         </div>
       `;
       lista.insertBefore(nuevoItem, lista.firstChild);
